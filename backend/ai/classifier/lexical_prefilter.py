@@ -47,6 +47,13 @@ _CRITICAL_KEYWORDS = (
     "time sensitive", "please respond", "overdue",
 )
 
+_TRAVEL_TRANSACTION_KEYWORDS = (
+    "flight receipt", "reservation itinerary", "trip confirmation",
+    "itinerary confirmation", "cancel itinerary", "booking confirmation",
+    "reservación confirmada", "confirmación de viaje", "cambio de itinerario",
+    "itinerario de viaje", "hotel confirmation", "check-in confirmation",
+)
+
 _UNSUBSCRIBE_RE = re.compile(
     r'https?://[^\s"\'<>]*unsub[^\s"\'<>]*', re.IGNORECASE
 )
@@ -92,6 +99,17 @@ class LexicalPreFilter:
         unsubscribe_url = unsub_match.group(0) if unsub_match else None
         promo_hits = _contains_any(f"{subject} {body}", _PROMO_KEYWORDS)
         is_newsletter = bool(header_newsletter or (unsubscribe_url and promo_hits))
+
+        travel_hits = _contains_any(f"{subject} {body}", _TRAVEL_TRANSACTION_KEYWORDS)
+        if travel_hits:
+            signals += [f"travel_transaction:{s}" for s in travel_hits]
+            return LexicalResult(
+                category=EmailCategory.IMPORTANT,
+                confidence=0.96,
+                is_newsletter=False,
+                unsubscribe_url=unsubscribe_url,
+                matched_signals=signals,
+            )
 
         # ── SPAM: strong scammy keywords ────────────────────
         spam_hits = _contains_any(f"{subject} {body}", _SPAM_KEYWORDS)

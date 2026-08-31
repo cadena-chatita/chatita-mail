@@ -14,9 +14,19 @@
 | **Motor AI** | AION Brain v3.2 vía **MCP** (ya publicado) |
 | **Repo** | https://github.com/ManuelCadena/chatita-mail |
 | **Autor** | Manuel Cadena |
-| **Última actualización** | 31-Jul-2026 21:40 (UTC-07:00) — **FASE 4 100% COMPLETA** (T4.1–T4.10): voice replies ElevenLabs, Drive attachment auto-suggest, accessibility mode, suite E2E Playwright **6/6**, dashboard, deploy prod. Fases 1–4 cerradas. |
+| **Última actualización** | 31-Aug-2026 18:52 UTC — Chatita integrada con Chatita Mail mediante 3 tools; Hugging Face BGE-M3 restaurado; búsqueda híbrida lexical+semántica; protección IMPORTANT para transacciones de viaje. |
 | **Fase actual** | 🟢 **PROD + INGESTA COMPLETA + 100% TRIAGED** — https://chatita.ai/mail/. 40,275 emails (Gmail 30,157 + iCloud 10,118), **0 sin clasificar (100% triaged)**. Timers activos: `chatita-mail-sync.timer` (Gmail incremental c/5min) + `chatita-mail-icloud.timer` (iCloud SINCE c/10min), ambos finalizando OK. Backend HTTP 200 (uvicorn :8000). Categorías: MEDIUM 28,622 · NOISE 11,210 · SPAM 372 · IMPORTANT 37 · LOW 30 · CRITICAL 4. 33 tareas / 8 compromisos abiertos · 17,418 min ahorrados. **Roadmap COMPLETO (Fases 0–4 ✅).** Fase 2 cerrada 01-Ago-2026: Calendar (crear eventos + MeetingScheduler), auto-follow-up, docgen Drive — todo human-in-the-loop. **E2E 8/8** contra prod. |
 | **Meta usuario** | ≤5 min/día en email · 100% importantes atendidos · 0% spam |
+
+---
+
+## CORRECCIÓN DE RECUPERACIÓN — 31-Aug-2026
+
+- Chatita expone `chatita_mail_search`, `chatita_mail_read` y `chatita_mail_status` sobre la base unificada Gmail+iCloud.
+- BGE-M3 volvió a responder HTTP 200 después de recargar créditos Hugging Face; timeout por intento limitado a 12 segundos.
+- La búsqueda semántica combina coincidencias lexicales obligatorias con similitud vectorial para priorizar entidades y términos exactos.
+- Si el endpoint semántico falla, la tool de Chatita degrada a `/inbox/emails?search=...` sin mezclar espacios vectoriales de modelos diferentes.
+- Confirmaciones, cambios y cancelaciones de viaje se preservan como `IMPORTANT` aunque provengan de remitentes automatizados.
 
 ---
 

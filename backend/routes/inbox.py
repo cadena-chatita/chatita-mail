@@ -35,7 +35,6 @@ from backend.models.schemas import (
     TaskOut,
 )
 from backend.services.embeddings import (
-    EmbeddingError,
     build_email_text,
     embedder,
 )
@@ -235,6 +234,30 @@ async def _hydrate_hits(
     return hits[:limit]
 
 
+async def _keyword_matches(
+    session: AsyncSession, query: str, status: EmailStatus | None, limit: int
+) -> list[str]:
+    terms = [term for term in query.split() if len(term) >= 3][:6]
+    if not terms:
+        return []
+    stmt = select(Email.id)
+    for term in terms:
+        like = f"%{term}%"
+        stmt = stmt.where(
+            or_(
+                Email.subject.ilike(like),
+                Email.from_address.ilike(like),
+                Email.from_name.ilike(like),
+                Email.snippet.ilike(like),
+                Email.body_text.ilike(like),
+            )
+        )
+    if status is not None:
+        stmt = stmt.where(Email.status == status)
+    stmt = stmt.order_by(Email.received_at.desc().nullslast()).limit(limit)
+    return [str(email_id) for email_id in (await session.scalars(stmt)).all()]
+
+
 @router.get("/search/semantic", response_model=list[SemanticHit])
 async def semantic_search(
     q: str = Query(..., min_length=2, description="Natural-language query"),
@@ -252,13 +275,21 @@ async def semantic_search(
             raise HTTPException(status_code=422, detail=f"Invalid status: {status}")
     try:
         qvec = await embedder.embed_text(q)
-    except EmbeddingError as exc:
-        raise HTTPException(status_code=503, detail=f"Embeddings unavailable: {exc}")
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Embedding provider error: {exc}")
+    except Exception:
+        keyword_ids = await _keyword_matches(session, q, status_filter, limit)
+        return await _hydrate_hits(
+            session,
+            {email_id: 0.999 - rank / 1000 for rank, email_id in enumerate(keyword_ids)},
+            status_filter,
+            limit,
+        )
     # Overfetch (status filter is applied after the vector search) then trim.
     hits = await embedder.semantic_search(session, qvec, limit=limit * 3)
-    return await _hydrate_hits(session, dict(hits), status_filter, limit)
+    keyword_ids = await _keyword_matches(session, q, status_filter, limit)
+    combined = dict(hits)
+    for rank, email_id in enumerate(keyword_ids):
+        combined[email_id] = 0.999 - rank / 1000
+    return await _hydrate_hits(session, combined, status_filter, limit)
 
 
 @router.get("/emails/{email_id}/similar", response_model=list[SemanticHit])

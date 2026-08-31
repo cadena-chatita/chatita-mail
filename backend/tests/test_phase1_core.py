@@ -14,6 +14,7 @@ from backend.ai.classifier.lexical_prefilter import LexicalPreFilter
 from backend.ai.security.phishing_detector import PhishingDetector
 from backend.ai.security.prompt_injection import PromptInjectionDefense
 from backend.models.entities import EmailCategory, RiskLevel
+from backend.services.embeddings import EmbeddingError, EmbeddingService
 
 
 # ── Lexical pre-filter ──────────────────────────────────────
@@ -39,6 +40,18 @@ def test_lexical_detects_noise_automated_sender():
     assert r.confidence >= 0.85
 
 
+def test_lexical_preserves_travel_confirmations():
+    lex = LexicalPreFilter()
+    for sender, subject in (
+        ("DeltaAirLines@t.delta.com", "Your Flight Receipt - JOSE MANUEL 18SEP26"),
+        ("AmericanExpress@welcome.americanexpress.com", "Reservación Confirmada: Barcelona"),
+        ("no-reply@delta.com", "Cancel Itinerary Confirmation"),
+    ):
+        result = lex.classify(sender, subject, "Confirmation Number GSDCOG")
+        assert result.category == EmailCategory.IMPORTANT
+        assert result.confidence >= 0.90
+
+
 def test_lexical_ambiguous_escalates():
     lex = LexicalPreFilter()
     r = lex.classify(
@@ -59,6 +72,12 @@ def test_lexical_extracts_unsubscribe():
     )
     assert r.is_newsletter is True
     assert r.unsubscribe_url is not None
+
+
+def test_embedding_without_hf_token_fails_explicitly():
+    service = EmbeddingService(token="")
+    with pytest.raises(EmbeddingError, match="HF token not configured"):
+        asyncio.run(service.embed_text("Barcelona itinerary"))
 
 
 # ── Prompt injection ────────────────────────────────────────

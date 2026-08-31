@@ -90,12 +90,15 @@ class EmbeddingService:
         """Return a single L2-normalized 1024-dim embedding."""
         if not self.token:
             raise EmbeddingError("HF token not configured (settings.hf_token empty)")
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                _endpoint(), json={"inputs": text_input}, headers=self._headers()
-            )
-            resp.raise_for_status()
-            vec = self._extract_vector(resp.json())
+        try:
+            async with httpx.AsyncClient(timeout=min(self.timeout, 12)) as client:
+                resp = await client.post(
+                    _endpoint(), json={"inputs": text_input}, headers=self._headers()
+                )
+                resp.raise_for_status()
+                vec = self._extract_vector(resp.json())
+        except httpx.HTTPError as exc:
+            raise EmbeddingError(f"Hugging Face embedding request failed: {exc}") from exc
         if len(vec) != self.dim:
             raise EmbeddingError(f"Expected {self.dim}-dim, got {len(vec)}")
         return _l2_normalize(vec)
@@ -106,25 +109,25 @@ class EmbeddingService:
             return []
         if not self.token:
             raise EmbeddingError("HF token not configured (settings.hf_token empty)")
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(
-                _endpoint(), json={"inputs": texts}, headers=self._headers()
-            )
-            resp.raise_for_status()
-            raw = resp.json()
-        # Expect a list of vectors (one per input). Some deployments return a
-        # list of [tokens x dim]; handle both.
+        try:
+            async with httpx.AsyncClient(timeout=min(self.timeout, 12)) as client:
+                resp = await client.post(
+                    _endpoint(), json={"inputs": texts}, headers=self._headers()
+                )
+                resp.raise_for_status()
+                raw = resp.json()
+        except httpx.HTTPError as exc:
+            raise EmbeddingError(f"Hugging Face batch request failed: {exc}") from exc
         out: list[list[float]] = []
         if isinstance(raw, list) and len(raw) == len(texts):
             for item in raw:
                 out.append(_l2_normalize(self._extract_vector(item)))
         else:
-            # Unexpected shape → degrade to sequential single embeds.
-            for t in texts:
-                out.append(await self.embed_text(t))
-        for v in out:
-            if len(v) != self.dim:
-                raise EmbeddingError(f"Expected {self.dim}-dim, got {len(v)}")
+            for item in texts:
+                out.append(await self.embed_text(item))
+        for vector in out:
+            if len(vector) != self.dim:
+                raise EmbeddingError(f"Expected {self.dim}-dim, got {len(vector)}")
         return out
 
     # ── Persistence (raw SQL against pgvector column) ──────────
