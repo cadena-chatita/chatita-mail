@@ -132,6 +132,9 @@ async def list_emails(
     category: EmailCategory | None = Query(None),
     unread_only: bool = Query(False),
     search: str | None = Query(None, description="Match subject/sender/snippet"),
+    account: str | None = Query(
+        None, description="Filter by mailbox address (e.g. manuelcadena@mac.com)"
+    ),
     sort: str = Query("priority", pattern="^(priority|date)$", description="priority: importance then recency; date: recency only"),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
@@ -156,6 +159,10 @@ async def list_emails(
         stmt = stmt.where(Email.status == status)
     if unread_only:
         stmt = stmt.where(Email.is_read.is_(False))
+    if account:
+        stmt = stmt.join(EmailAccount, EmailAccount.id == Email.account_id).where(
+            EmailAccount.email_address.ilike(f"%{account.strip()}%")
+        )
     if search:
         like = f"%{search.strip()}%"
         stmt = stmt.where(
