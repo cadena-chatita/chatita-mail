@@ -135,6 +135,7 @@ temp/
 *.tmp
 *.bak
 *.backup
+Dockerfile.bak-*
 *.swp
 *.swo
 *~
