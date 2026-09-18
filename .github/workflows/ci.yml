@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t chatita-mail:latest .
+      - name: Validate docker-compose
+        run: |
+          for f in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
+            if [ -f "$f" ]; then docker compose -f "$f" config; fi
+          done
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: error
