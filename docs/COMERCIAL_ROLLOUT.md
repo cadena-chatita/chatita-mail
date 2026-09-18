@@ -31,52 +31,58 @@ chatita-mail forma parte del ecosistema AION/CitrusMax/Chatita consolidado en M5
 
 ## 4. Estructura de archivos
 
--  — imagen base
--  — orquestación local
--  — variables requeridas
--  — este documento
--  — setup rápido
+- `Dockerfile` — imagen base
+- `docker-compose.yml` — orquestación local
+- `.env.example` — variables requeridas
+- `docs/COMERCIAL_ROLLOUT.md` — este documento
+- `README.md` — setup rápido
 
 ## 5. Variables de entorno
 
-Copiar  a  y completar. Nunca commitear .
+Copiar `.env.example` a `.env` y completar. Nunca commitear `.env`.
 
-
+```bash
+cp .env.example .env
+```
 
 Variables típicas:
-- 
-- 
-- 
-- 
-- 
+- `DATABASE_URL`
+- `REDIS_URL`
+- `S3_BUCKET`
+- `AWS_REGION`
+- `API_KEY_*`
 
 ## 6. Build
 
-
+```bash
+docker build -t chatita-mail:repo .
+```
 
 ## 7. Despliegue
 
-1. Clonar en M5: 
-2. Crear  desde .
-3.  o .
+1. Clonar en M5: `git clone https://github.com/cadena-chatita/chatita-mail.git /data/opt/repos/chatita-mail`
+2. Crear `.env` desde `.env.example`.
+3. `docker-compose up -d` o `docker run -d --env-file .env -p <PORT>:<PORT> chatita-mail:repo`.
 4. Verificar health endpoint.
 
 ## 8. Health checks
 
-
+```bash
+curl -s http://localhost:<PORT>/health | jq .
+```
 
 ## 9. Backup y restore
 
 - **Código:** git push/pull.
-- **Base de datos:**  diario a S3.
+- **Base de datos:** `pg_dump -Fc` diario a S3.
 - **Objetos:** S3 versioning activado.
-- **Rollback:**  y restaurar snapshot EBS/DB.
+- **Rollback:** `git checkout <sha-anterior>` y restaurar snapshot EBS/DB.
 
 ## 10. Seguridad
 
-- No commitear  ni credenciales.
-- Usar IAM roles en M5, no keys en  si es posible.
--  excluye , logs, datos y claves.
+- No commitear `.env` ni credenciales.
+- Usar IAM roles en M5, no keys en `.env` si es posible.
+- `.dockerignore` excluye `.env`, logs, datos y claves.
 - Contenedores corren como usuario no-root.
 
 ## 11. Rollout comercial
@@ -96,4 +102,3 @@ Variables típicas:
 - [ ] S3 Intelligent-Tiering para activos
 
 ---
-
