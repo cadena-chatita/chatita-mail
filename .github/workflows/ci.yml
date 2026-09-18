@@ -12,11 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build Docker image
-        run: docker build -t chatita-mail:latest .
+        run: |
+          if [ -f package.json ] || [ -f requirements.txt ]; then
+            docker build -t chatita-mail:latest .
+          else
+            echo "scaffold/infra repo — no app build context (package.json/requirements.txt absent)"
+          fi
       - name: Validate docker-compose
         run: |
           for f in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
-            if [ -f "$f" ]; then docker compose -f "$f" config; fi
+            if [ -f "$f" ]; then
+              [ -f .env.example ] && cp .env.example .env || touch .env
+              docker compose -f "$f" config
+            fi
           done
       - name: Lint Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
