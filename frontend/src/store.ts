@@ -30,6 +30,7 @@ export const FOLDERS: FolderDef[] = [
   { key: "noise", label: "Noise", icon: "VolumeX", category: "NOISE", group: "system", countSource: "category", countKey: "NOISE" },
   { key: "quarantined", label: "Quarantine", icon: "ShieldAlert", status: "QUARANTINED", group: "system", countSource: "status", countKey: "QUARANTINED" },
   { key: "blocked", label: "Blocked", icon: "ShieldX", status: "BLOCKED", group: "system", countSource: "status", countKey: "BLOCKED" },
+  { key: "trash", label: "Papelera", icon: "Trash2", status: "DELETED", group: "system", countSource: "status", countKey: "DELETED" },
 ];
 
 interface UIState {

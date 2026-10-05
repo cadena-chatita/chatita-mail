@@ -1,7 +1,9 @@
 // Chatita Mail v3.0 — middle pane: email list for the active folder
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import { Paperclip, Loader2, Inbox as InboxIcon, Sparkles } from "lucide-react";
-import { listEmails, searchSemantic } from "../api/client";
+import { listEmails, searchSemantic, setStatus } from "../api/client";
 import { folderByKey, useUI } from "../store";
 import { CategoryBadge, SecurityBadge } from "./badges";
 import { avatarColor, initials, relativeDate } from "../lib/format";
@@ -10,6 +12,9 @@ export default function EmailList() {
   const { folderKey, selectedEmailId, selectEmail, search, searchMode, unreadOnly, sortMode, setSortMode } =
     useUI();
   const folder = folderByKey(folderKey);
+  const qc = useQueryClient();
+  // Correo bajo el puntero (ref: no provoca re-render al mover el mouse).
+  const hoveredRef = useRef<{ id: string; status: string } | null>(null);
   // Semantic mode kicks in only when the user has typed a query (>=2 chars);
   // otherwise fall back to the normal folder listing.
   const semantic = searchMode === "meaning" && search.trim().length >= 2;
@@ -39,6 +44,58 @@ export default function EmailList() {
     // Don't auto-refetch semantic results (each triggers an embedding call).
     refetchInterval: semantic ? false : 20000,
   });
+
+  // Papelera: solo se ve en su carpeta; en las demás (Spam/Noise/búsqueda) se ocultan los eliminados.
+  const visible = folder.status === "DELETED" ? emails : emails.filter((e) => e.status !== "DELETED");
+
+  // Delete / Retroceso (tecla "delete" del Mac) sobre el correo bajo el mouse -> Papelera, con Deshacer.
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== "Delete" && ev.key !== "Backspace") return;
+      if (ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || ev.shiftKey) return;
+      const t = ev.target as HTMLElement | null;
+      if (t && (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable)) return;
+      const hov = hoveredRef.current;
+      if (!hov || hov.status === "DELETED") return;
+      ev.preventDefault();
+      const { id, status: prev } = hov;
+      hoveredRef.current = null;
+      if (useUI.getState().selectedEmailId === id) selectEmail(null);
+      // Optimista: quitar de todas las listas en caché al instante.
+      qc.setQueriesData<{ id: string }[]>({ queryKey: ["emails"] }, (old) =>
+        Array.isArray(old) ? old.filter((x) => x.id !== id) : old
+      );
+      setStatus(id, "DELETED")
+        .then(() => {
+          qc.invalidateQueries();
+          toast(
+            (tt) => (
+              <span className="flex items-center gap-3 text-sm">
+                Correo movido a la papelera
+                <button
+                  className="font-semibold text-blue-600 hover:underline"
+                  onClick={() => {
+                    toast.dismiss(tt.id);
+                    setStatus(id, prev as never)
+                      .then(() => qc.invalidateQueries())
+                      .catch((e) => toast.error(`No se pudo deshacer: ${(e as Error).message}`));
+                  }}
+                >
+                  Deshacer
+                </button>
+              </span>
+            ),
+            { duration: 6000 }
+          );
+        })
+        .catch((e) => {
+          qc.invalidateQueries();
+          toast.error(`No se pudo eliminar: ${(e as Error).message}`);
+        });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [qc, selectEmail]);
 
   return (
     <div className="w-[380px] shrink-0 border-r border-slate-200 bg-white flex flex-col">
@@ -70,7 +127,7 @@ export default function EmailList() {
               Fecha
             </button>
           </div>
-          <span className="text-xs text-slate-400">{emails.length}</span>
+          <span className="text-xs text-slate-400">{visible.length}</span>
         </div>
       </div>
 
@@ -81,7 +138,7 @@ export default function EmailList() {
           </div>
         )}
 
-        {!isLoading && emails.length === 0 && (
+        {!isLoading && visible.length === 0 && (
           <div className="p-10 text-center text-slate-400">
             <InboxIcon className="mx-auto mb-2" size={28} />
             <div className="font-medium">Nothing here</div>
@@ -91,7 +148,7 @@ export default function EmailList() {
           </div>
         )}
 
-        {emails.map((e) => {
+        {visible.map((e) => {
           const active = selectedEmailId === e.id;
           const name = e.from_name || e.from_address;
           return (
@@ -99,6 +156,8 @@ export default function EmailList() {
               key={e.id}
               data-testid="email-row"
               onClick={() => selectEmail(e.id)}
+              onMouseEnter={() => { hoveredRef.current = { id: e.id, status: e.status }; }}
+              onMouseLeave={() => { if (hoveredRef.current?.id === e.id) hoveredRef.current = null; }}
               className={`w-full text-left px-3 py-3 border-b border-slate-100 flex gap-3 transition ${
                 active ? "bg-slate-100" : "hover:bg-slate-50"
               } ${!e.is_read ? "bg-blue-50/40" : ""}`}

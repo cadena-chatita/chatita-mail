@@ -27,6 +27,7 @@ import {
   CalendarClock,
   FilePlus,
   ExternalLink,
+  Undo2,
 } from "lucide-react";
 import {
   draftReply,
@@ -453,6 +454,9 @@ export default function ReadingPane() {
       <div className="px-5 py-2.5 border-b border-slate-100 flex items-center gap-1.5 flex-wrap">
         <ToolbarBtn icon={<Archive size={16} />} label="Archive" onClick={() => statusMut.mutate("ARCHIVED")} />
         <ToolbarBtn icon={<Trash2 size={16} />} label="Delete" onClick={() => statusMut.mutate("DELETED")} />
+        {data.status === "DELETED" && (
+          <ToolbarBtn icon={<Undo2 size={16} />} label="Restaurar" onClick={() => statusMut.mutate("INBOX")} />
+        )}
         <ToolbarBtn
           icon={data.is_read ? <MailOpen size={16} /> : <MailOpen size={16} />}
           label={data.is_read ? "Mark unread" : "Mark read"}
