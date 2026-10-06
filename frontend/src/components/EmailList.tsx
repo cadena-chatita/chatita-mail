@@ -15,6 +15,10 @@ export default function EmailList() {
   const qc = useQueryClient();
   // Correo bajo el puntero (ref: no provoca re-render al mover el mouse).
   const hoveredRef = useRef<{ id: string; status: string } | null>(null);
+  // Instante de la ultima navegacion con flechas: durante 600 ms se ignoran los mouseenter sinteticos que
+  // el navegador dispara al desplazar la lista bajo un puntero quieto (si no, la seleccion "rebotaria").
+  const navAtRef = useRef(0);
+  const visibleRef = useRef<{ id: string; status: string }[]>([]);
   // Semantic mode kicks in only when the user has typed a query (>=2 chars);
   // otherwise fall back to the normal folder listing.
   const semantic = searchMode === "meaning" && search.trim().length >= 2;
@@ -47,10 +51,29 @@ export default function EmailList() {
 
   // Papelera: solo se ve en su carpeta; en las demás (Spam/Noise/búsqueda) se ocultan los eliminados.
   const visible = folder.status === "DELETED" ? emails : emails.filter((e) => e.status !== "DELETED");
+  visibleRef.current = visible;
 
   // Delete / Retroceso (tecla "delete" del Mac) sobre el correo bajo el mouse -> Papelera, con Deshacer.
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
+      // Flecha abajo/arriba con el mouse sobre un correo: selecciona el siguiente/anterior en vez de desplazar.
+      if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+        if (ev.metaKey || ev.ctrlKey || ev.altKey || ev.shiftKey) return;
+        const t = ev.target as HTMLElement | null;
+        if (t && (["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.isContentEditable)) return;
+        const cur = hoveredRef.current;
+        const list = visibleRef.current;
+        if (!cur || list.length === 0) return;
+        const idx = list.findIndex((x) => x.id === cur.id);
+        if (idx < 0) return;
+        ev.preventDefault(); // evita el scroll de la pagina/lista
+        navAtRef.current = Date.now();
+        const next = list[Math.min(list.length - 1, Math.max(0, idx + (ev.key === "ArrowDown" ? 1 : -1)))];
+        hoveredRef.current = { id: next.id, status: next.status };
+        selectEmail(next.id);
+        document.querySelector(`[data-email-id="${next.id}"]`)?.scrollIntoView({ block: "nearest" });
+        return;
+      }
       if (ev.key !== "Delete" && ev.key !== "Backspace") return;
       if (ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || ev.shiftKey) return;
       const t = ev.target as HTMLElement | null;
@@ -156,8 +179,10 @@ export default function EmailList() {
               key={e.id}
               data-testid="email-row"
               onClick={() => selectEmail(e.id)}
-              onMouseEnter={() => { hoveredRef.current = { id: e.id, status: e.status }; }}
-              onMouseLeave={() => { if (hoveredRef.current?.id === e.id) hoveredRef.current = null; }}
+              data-email-id={e.id}
+              onMouseEnter={() => { if (Date.now() - navAtRef.current > 600) hoveredRef.current = { id: e.id, status: e.status }; }}
+              onMouseMove={(ev) => { if (ev.movementX !== 0 || ev.movementY !== 0) hoveredRef.current = { id: e.id, status: e.status }; }}
+              onMouseLeave={() => { if (Date.now() - navAtRef.current > 600 && hoveredRef.current?.id === e.id) hoveredRef.current = null; }}
               className={`w-full text-left px-3 py-3 border-b border-slate-100 flex gap-3 transition ${
                 active ? "bg-slate-100" : "hover:bg-slate-50"
               } ${!e.is_read ? "bg-blue-50/40" : ""}`}
