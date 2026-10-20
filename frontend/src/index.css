@@ -79,3 +79,9 @@ html[data-a11y-motion="1"] * {
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
 }
+
+/* Mobile: no tap highlight, no rubber-band bounce, comfortable touch targets */
+html, body { overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+@media (max-width: 767px) {
+  button, select, input, textarea { font-size: 16px; } /* prevents iOS zoom-on-focus */
+}

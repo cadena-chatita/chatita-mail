@@ -55,6 +55,21 @@ class Settings(BaseSettings):
     # Mailbox to impersonate via DWD (Manny's primary inbox).
     gmail_impersonate_subject: str = "jose@manuelcadena.com"
 
+    # ── Multi-account OAuth + standalone login (mail.chatita.ai) ──
+    # Fernet key (urlsafe base64, 32 bytes) used to encrypt stored credentials.
+    mail_cred_key: str = ""
+    # Public base URL used to build OAuth redirect URIs.
+    public_base_url: str = "https://mail.chatita.ai"
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+    ms_client_id: str = ""
+    ms_client_secret: str = ""
+    ms_tenant: str = "common"
+    # Comma-separated emails allowed to sign in to the standalone app.
+    login_allowed_emails: str = ""
+    session_cookie_name: str = "chatita_mail_session"
+    session_ttl_hours: int = 24 * 30
+
     # ── Communication ───────────────────────────────────────
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

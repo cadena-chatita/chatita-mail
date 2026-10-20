@@ -21,6 +21,7 @@ export type RiskLevel = "safe" | "suspicious" | "dangerous";
 
 export interface EmailListItem {
   id: string;
+  account_id?: string | null;
   from_address: string;
   from_name: string | null;
   subject: string | null;
@@ -121,4 +122,24 @@ export interface SyncResult {
   upserted?: number;
   triaged?: number;
   [k: string]: unknown;
+}
+
+export type AccountProvider = "gmail" | "microsoft" | "imap" | "icloud";
+export type AccountStatus = "connected" | "pending_auth" | "error" | "disabled";
+
+export interface Account {
+  id: string;
+  provider: AccountProvider;
+  email_address: string;
+  display_name: string | null;
+  color: string | null;
+  auth_type: string | null;
+  status: AccountStatus;
+  is_active: boolean;
+  is_default: boolean;
+  last_sync_at: string | null;
+  last_error: string | null;
+  email_count: number;
+  unread_count: number;
+  oauth_ready: boolean;
 }

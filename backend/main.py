@@ -42,6 +42,7 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:3000",
         "https://chatita.ai",
+        "https://mail.chatita.ai",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -91,12 +92,16 @@ async def version() -> dict:
 
 
 # ── Routers ─────────────────────────────────────────────────
+from backend.routes import accounts as accounts_routes  # noqa: E402
+from backend.routes import auth as auth_routes  # noqa: E402
 from backend.routes import classify as classify_routes  # noqa: E402
 from backend.routes import compose as compose_routes  # noqa: E402
 from backend.routes import inbox as inbox_routes  # noqa: E402
 from backend.routes import security as security_routes  # noqa: E402
 from backend.routes import tasks as tasks_routes  # noqa: E402
 
+app.include_router(auth_routes.router)
+app.include_router(accounts_routes.router)
 app.include_router(inbox_routes.router)
 app.include_router(classify_routes.router)
 app.include_router(security_routes.router)

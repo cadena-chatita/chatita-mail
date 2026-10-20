@@ -1,6 +1,7 @@
 // Chatita Mail v3.0 - API client
 import axios from "axios";
 import type {
+  Account,
   Commitment,
   EmailCategory,
   EmailDetail,
@@ -27,6 +28,7 @@ export async function listEmails(params: {
   search?: string;
   sort?: "priority" | "date";
   limit?: number;
+  account_id?: string;
 }): Promise<EmailListItem[]> {
   const { data } = await api.get<EmailListItem[]>("/inbox/emails", { params });
   return data;
@@ -75,8 +77,8 @@ export async function getAnalytics(days = 14): Promise<Analytics> {
   return data;
 }
 
-export async function getStats(): Promise<InboxStats> {
-  const { data } = await api.get<InboxStats>("/inbox/stats");
+export async function getStats(accountId?: string): Promise<InboxStats> {
+  const { data } = await api.get<InboxStats>("/inbox/stats", { params: accountId ? { account_id: accountId } : {} });
   return data;
 }
 
@@ -383,9 +385,36 @@ export async function composeEmail(payload: {
   body: string;
   cc?: string[];
   bcc?: string[];
+  from_account_id?: string;
 }): Promise<SendResult> {
   const { data } = await api.post<SendResult>("/inbox/compose", payload);
   return data;
 }
+
+// ── Accounts (settings) ────────────────────────────────────
+export interface NewAccount {
+  email_address: string;
+  provider: Account["provider"];
+  display_name?: string;
+  color?: string;
+  password?: string;
+  imap_preset?: string;
+  imap_host?: string;
+  smtp_host?: string;
+}
+
+export const listAccounts = async (): Promise<Account[]> => (await api.get<Account[]>("/accounts")).data;
+export const createAccount = async (b: NewAccount): Promise<Account> => (await api.post<Account>("/accounts", b)).data;
+export const patchAccount = async (id: string, b: Partial<Pick<Account, "display_name" | "color" | "is_active" | "is_default">>): Promise<Account> =>
+  (await api.patch<Account>(`/accounts/${id}`, b)).data;
+export const deleteAccount = async (id: string, purge = false) =>
+  (await api.delete(`/accounts/${id}`, { params: { purge } })).data;
+export const authorizeAccount = async (id: string): Promise<{ url: string }> =>
+  (await api.post(`/accounts/${id}/authorize`)).data;
+export const testAccount = async (id: string): Promise<{ ok: boolean; error?: string }> =>
+  (await api.post(`/accounts/${id}/test`)).data;
+export const syncAccount = async (id: string) => (await api.post(`/accounts/${id}/sync`, null, { params: { max_results: 100 } })).data;
+export const setAccountPassword = async (id: string, password: string) =>
+  (await api.post(`/accounts/${id}/password`, { password })).data;
 
 export default api;

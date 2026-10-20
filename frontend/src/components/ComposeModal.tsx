@@ -1,18 +1,25 @@
 // Chatita Mail v3.0 — new-email composer (modal). Sends a brand-new message
 // via gmail.send (POST /inbox/compose) with a confirmation before sending.
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Send, X, Loader2, PenSquare } from "lucide-react";
-import { composeEmail } from "../api/client";
+import { composeEmail, listAccounts } from "../api/client";
 import { useUI } from "../store";
 
-const MAILBOX = "jose@manuelcadena.com";
 const splitAddrs = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
 export default function ComposeModal() {
-  const { composeOpen, closeCompose } = useUI();
+  const { composeOpen, closeCompose, accountId } = useUI();
   const qc = useQueryClient();
+  const { data: accounts = [] } = useQuery({ queryKey: ["accounts"], queryFn: listAccounts });
+  const senders = accounts.filter((a) => a.status === "connected");
+  const [fromId, setFromId] = useState("");
+  const from =
+    senders.find((a) => a.id === (fromId || (accountId !== "all" ? accountId : ""))) ??
+    senders.find((a) => a.is_default) ??
+    senders[0];
+  const MAILBOX = from?.email_address ?? "";
   const [to, setTo] = useState("");
   const [cc, setCc] = useState("");
   const [subject, setSubject] = useState("");
@@ -25,6 +32,7 @@ export default function ComposeModal() {
         cc: splitAddrs(cc),
         subject,
         body,
+        from_account_id: from?.id,
       }),
     onSuccess: (r) => {
       toast.success(`Enviado${r.to?.length ? ` a ${r.to.join(", ")}` : ""}`);
@@ -52,8 +60,8 @@ export default function ComposeModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-2xl rounded-xl bg-white shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-0 sm:p-4">
+      <div className="w-full h-full sm:h-auto sm:max-w-2xl sm:rounded-xl bg-white shadow-2xl border border-slate-200 flex flex-col sm:max-h-[90vh] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
@@ -70,6 +78,20 @@ export default function ComposeModal() {
 
         {/* Body */}
         <div className="p-4 overflow-y-auto">
+          <label className="block text-[11px] font-medium text-slate-500 mb-0.5">De</label>
+          <select
+            value={from?.id ?? ""}
+            onChange={(e) => setFromId(e.target.value)}
+            className="w-full mb-2 rounded-md border bg-white px-2.5 py-1.5 text-sm"
+            style={{ borderColor: from?.color ?? undefined, borderLeftWidth: 4 }}
+          >
+            {senders.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.display_name && a.display_name !== a.email_address ? `${a.display_name} <${a.email_address}>` : a.email_address}
+              </option>
+            ))}
+          </select>
+
           <label className="block text-[11px] font-medium text-slate-500 mb-0.5">Para</label>
           <input
             value={to}
@@ -106,7 +128,7 @@ export default function ComposeModal() {
         <div className="flex items-center gap-2 px-4 py-3 border-t border-slate-100">
           <button
             onClick={confirmSend}
-            disabled={sendMut.isPending || !to.trim()}
+            disabled={sendMut.isPending || !to.trim() || !from}
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 text-white text-sm px-4 py-2 hover:bg-indigo-500 disabled:opacity-50"
           >
             {sendMut.isPending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}

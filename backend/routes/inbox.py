@@ -135,6 +135,7 @@ async def list_emails(
     account: str | None = Query(
         None, description="Filter by mailbox address (e.g. manuelcadena@mac.com)"
     ),
+    account_id: str | None = Query(None, description="Filter by account id (omit for unified inbox)"),
     sort: str = Query("priority", pattern="^(priority|date)$", description="priority: importance then recency; date: recency only"),
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
@@ -159,6 +160,8 @@ async def list_emails(
         stmt = stmt.where(Email.status == status)
     if unread_only:
         stmt = stmt.where(Email.is_read.is_(False))
+    if account_id:
+        stmt = stmt.where(Email.account_id == account_id)
     if account:
         stmt = stmt.join(EmailAccount, EmailAccount.id == Email.account_id).where(
             EmailAccount.email_address.ilike(f"%{account.strip()}%")
@@ -324,13 +327,14 @@ async def similar_emails(
 
 
 @router.get("/stats", response_model=InboxStats)
-async def inbox_stats(session: AsyncSession = Depends(get_session)) -> InboxStats:
+async def inbox_stats(account_id: str | None = Query(None), session: AsyncSession = Depends(get_session)) -> InboxStats:
     """Aggregate counts powering the sidebar (folders, categories, workload)."""
-    total = await session.scalar(select(func.count(Email.id))) or 0
+    _af = [Email.account_id == account_id] if account_id else []
+    total = await session.scalar(select(func.count(Email.id)).where(*_af)) or 0
     unread = (
         await session.scalar(
             select(func.count(Email.id)).where(
-                Email.is_read.is_(False), Email.status == EmailStatus.INBOX
+                Email.is_read.is_(False), Email.status == EmailStatus.INBOX, *_af
             )
         )
         or 0
@@ -338,15 +342,21 @@ async def inbox_stats(session: AsyncSession = Depends(get_session)) -> InboxStat
 
     by_status: dict[str, int] = {}
     for st, cnt in (
-        await session.execute(select(Email.status, func.count(Email.id)).group_by(Email.status))
+        await session.execute(select(Email.status, func.count(Email.id)).where(*_af).group_by(Email.status))
     ).all():
         by_status[st.value if hasattr(st, "value") else str(st)] = cnt
 
     by_category: dict[str, int] = {}
     for cat, cnt in (
         await session.execute(
-            select(Classification.category, func.count(Classification.id)).group_by(
-                Classification.category
+            (
+                select(Classification.category, func.count(Classification.id))
+                .join(Email, Email.id == Classification.email_id).where(*_af)
+                .group_by(Classification.category)
+                if _af
+                else select(Classification.category, func.count(Classification.id)).group_by(
+                    Classification.category
+                )
             )
         )
     ).all():

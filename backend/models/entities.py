@@ -65,6 +65,7 @@ class AccountProvider(str, enum.Enum):
     GMAIL = "gmail"
     ICLOUD = "icloud"
     IMAP = "imap"
+    MICROSOFT = "microsoft"
 
 
 def _uuid() -> str:
@@ -86,6 +87,23 @@ class EmailAccount(Base):
     # idle | running | error — surfaced by /sync/status for long backfills
     sync_status: Mapped[str | None] = mapped_column(String(32), default="idle")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # ── Multi-account (settings UI) ─────────────────────────
+    # auth_type: dwd (service-account delegation) | oauth | password
+    auth_type: Mapped[str | None] = mapped_column(String(16))
+    # connected | pending_auth | error | disabled
+    status: Mapped[str | None] = mapped_column(String(16), default="connected")
+    color: Mapped[str | None] = mapped_column(String(9))
+    # Fernet-encrypted JSON with refresh/access tokens or IMAP password
+    credentials_enc: Mapped[str | None] = mapped_column(Text)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    imap_host: Mapped[str | None] = mapped_column(String(255))
+    imap_port: Mapped[int | None] = mapped_column(Integer)
+    smtp_host: Mapped[str | None] = mapped_column(String(255))
+    smtp_port: Mapped[int | None] = mapped_column(Integer)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     emails: Mapped[list[Email]] = relationship(back_populates="account", cascade="all, delete-orphan")
 

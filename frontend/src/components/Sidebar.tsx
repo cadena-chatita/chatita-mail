@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { getStats, syncGmail } from "../api/client";
 import { FOLDERS, useUI, type FolderDef } from "../store";
 import { humanMinutes } from "../lib/format";
+import AccountSwitcher from "./AccountSwitcher";
 import type { InboxStats } from "../types";
 
 function LucideIcon({ name, className }: { name: string; className?: string }) {
@@ -40,12 +41,12 @@ const GROUPS: { id: FolderDef["group"]; label: string | null }[] = [
 ];
 
 export default function Sidebar() {
-  const { folderKey, setFolder, openCompose } = useUI();
+  const { folderKey, setFolder, openCompose, accountId, drawerOpen, setDrawer } = useUI();
   const qc = useQueryClient();
 
   const { data: stats } = useQuery({
-    queryKey: ["stats"],
-    queryFn: getStats,
+    queryKey: ["stats", accountId],
+    queryFn: () => getStats(accountId === "all" ? undefined : accountId),
     refetchInterval: 15000,
   });
 
@@ -72,7 +73,13 @@ export default function Sidebar() {
   }, []);
 
   return (
-    <aside className="w-60 shrink-0 border-r border-slate-200 bg-slate-50 flex flex-col">
+    <>
+    {drawerOpen && <div className="fixed inset-0 z-30 bg-slate-900/40 md:hidden" onClick={() => setDrawer(false)} />}
+    <aside
+      className={`fixed md:static inset-y-0 left-0 z-40 w-72 md:w-60 shrink-0 border-r border-slate-200 bg-slate-50 flex flex-col pt-[env(safe-area-inset-top)] transition-transform md:translate-x-0 ${
+        drawerOpen ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
       {/* Brand */}
       <div className="px-4 py-4 flex items-center gap-2">
         <div className="h-8 w-8 rounded-lg bg-slate-900 text-white grid place-items-center text-sm">
@@ -99,12 +106,13 @@ export default function Sidebar() {
           className="w-full flex items-center justify-center gap-2 rounded-lg bg-slate-900 text-white text-sm font-medium py-2 hover:bg-slate-700 transition disabled:opacity-60"
         >
           <LucideIcon name={sync.isPending ? "Loader" : "RefreshCw"} className={sync.isPending ? "animate-spin" : ""} />
-          {sync.isPending ? "Syncing…" : "Sync Gmail"}
+          {sync.isPending ? "Syncing…" : "Sincronizar"}
         </button>
       </div>
 
       {/* Folders */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+        <AccountSwitcher />
         {GROUPS.map((g) => {
           const items = FOLDERS.filter((f) => f.group === g.id);
           if (items.length === 0) return null;
@@ -147,6 +155,15 @@ export default function Sidebar() {
         })}
       </nav>
 
+      <button
+        onClick={() => setFolder("settings")}
+        className={`mx-2 mb-1 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm ${
+          folderKey === "settings" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-200/60"
+        }`}
+      >
+        <LucideIcon name="Settings" /> Configuración
+      </button>
+
       {/* Workload footer */}
       <div className="border-t border-slate-200 p-3 text-xs text-slate-500 space-y-1">
         <div className="flex items-center justify-between">
@@ -161,5 +178,6 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }

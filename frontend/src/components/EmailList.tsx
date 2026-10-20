@@ -3,14 +3,17 @@ import { useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { Paperclip, Loader2, Inbox as InboxIcon, Sparkles } from "lucide-react";
-import { listEmails, searchSemantic, setStatus } from "../api/client";
+import { listAccounts, listEmails, searchSemantic, setStatus } from "../api/client";
 import { folderByKey, useUI } from "../store";
 import { CategoryBadge, SecurityBadge } from "./badges";
 import { avatarColor, initials, relativeDate } from "../lib/format";
 
 export default function EmailList() {
-  const { folderKey, selectedEmailId, selectEmail, search, searchMode, unreadOnly, sortMode, setSortMode } =
+  const { folderKey, selectedEmailId, selectEmail, search, searchMode, unreadOnly, sortMode, setSortMode, accountId } =
     useUI();
+  const { data: accounts = [] } = useQuery({ queryKey: ["accounts"], queryFn: listAccounts, refetchInterval: 30000 });
+  const accById = new Map(accounts.map((a) => [a.id, a]));
+  const showChip = accountId === "all" && accounts.filter((a) => a.is_active).length > 1;
   const folder = folderByKey(folderKey);
   const qc = useQueryClient();
   // Correo bajo el puntero (ref: no provoca re-render al mover el mouse).
@@ -33,6 +36,7 @@ export default function EmailList() {
       searchMode,
       unreadOnly,
       sortMode,
+      accountId,
     ],
     queryFn: () =>
       semantic
@@ -44,6 +48,7 @@ export default function EmailList() {
             unread_only: unreadOnly || undefined,
             sort: sortMode,
             limit: 100,
+            account_id: accountId === "all" ? undefined : accountId,
           }),
     // Don't auto-refetch semantic results (each triggers an embedding call).
     refetchInterval: semantic ? false : 20000,
@@ -121,7 +126,7 @@ export default function EmailList() {
   }, [qc, selectEmail]);
 
   return (
-    <div className="w-[380px] shrink-0 border-r border-slate-200 bg-white flex flex-col">
+    <div className={`${selectedEmailId ? "hidden md:flex" : "flex"} w-full md:w-[380px] shrink-0 border-r border-slate-200 bg-white flex-col min-h-0`}>
       <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
         <h2 className="font-semibold text-slate-800">{folder.label}</h2>
         <div className="flex items-center gap-2">
@@ -207,7 +212,16 @@ export default function EmailList() {
                   >
                     {name}
                   </span>
-                  <span className="ml-auto text-[11px] text-slate-400 shrink-0">
+                  {showChip && e.account_id && accById.get(e.account_id) && (
+                    <span
+                      className="ml-auto inline-flex items-center gap-1 text-[10px] text-slate-500 shrink-0 max-w-[110px]"
+                      title={accById.get(e.account_id)!.email_address}
+                    >
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: accById.get(e.account_id)!.color ?? "#94a3b8" }} />
+                      <span className="truncate">{accById.get(e.account_id)!.display_name || accById.get(e.account_id)!.email_address}</span>
+                    </span>
+                  )}
+                  <span className={`${showChip ? "" : "ml-auto "}text-[11px] text-slate-400 shrink-0`}>
                     {relativeDate(e.received_at)}
                   </span>
                 </div>

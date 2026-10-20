@@ -90,6 +90,7 @@ class ComposeIn(BaseModel):
     body: str
     cc: list[str] | None = None
     bcc: list[str] | None = None
+    from_account_id: str | None = None
 
 
 # ── helpers ─────────────────────────────────────────────────
@@ -239,9 +240,17 @@ async def compose_email(
     """Send a brand-new email."""
     if not payload.to:
         raise HTTPException(status_code=422, detail="Compose requires at least one recipient")
+    sender = _gmail
+    if payload.from_account_id:
+        from backend.models.entities import EmailAccount
+        from backend.services.email.account_connectors import build_connector
+        acct = await session.get(EmailAccount, payload.from_account_id)
+        if not acct or acct.deleted_at or acct.status != "connected":
+            raise HTTPException(status_code=422, detail="Selected sender account is not connected")
+        sender = build_connector(acct)
     try:
         result = await asyncio.to_thread(
-            _gmail.send_message,
+            sender.send_message,
             to=payload.to,
             cc=payload.cc or None,
             bcc=payload.bcc or None,

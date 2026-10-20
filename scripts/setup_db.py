@@ -67,9 +67,27 @@ async def create_schema() -> None:
         for stmt in (
             "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS last_history_id VARCHAR(64)",
             "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS sync_status VARCHAR(32) DEFAULT 'idle'",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS auth_type VARCHAR(16)",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS status VARCHAR(16) DEFAULT 'connected'",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS color VARCHAR(9)",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS credentials_enc TEXT",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS last_error TEXT",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS imap_host VARCHAR(255)",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS imap_port INTEGER",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS smtp_host VARCHAR(255)",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS smtp_port INTEGER",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
+            "ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
         ):
             await conn.execute(text(stmt))
-        print("[setup_db] email_accounts sync columns ensured (last_history_id, sync_status)")
+        print("[setup_db] email_accounts columns ensured (sync + multi-account)")
+    # ALTER TYPE ... ADD VALUE needs its own (autocommit) transaction.
+    async with engine.connect() as ac:
+        ac = await ac.execution_options(isolation_level="AUTOCOMMIT")
+        await ac.execute(text("ALTER TYPE accountprovider ADD VALUE IF NOT EXISTS 'MICROSOFT'"))
+        print("[setup_db] accountprovider enum has MICROSOFT")
+    async with engine.begin() as conn:
 
         if has_vector:
             # Add 1024-dim vector column (BGE-M3) if not present

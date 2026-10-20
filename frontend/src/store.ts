@@ -41,6 +41,10 @@ interface UIState {
   unreadOnly: boolean;
   sortMode: "priority" | "date";
   composeOpen: boolean;
+  accountId: string; // "all" = unified inbox
+  drawerOpen: boolean;
+  setAccount: (id: string) => void;
+  setDrawer: (open: boolean) => void;
   setFolder: (key: string) => void;
   selectEmail: (id: string | null) => void;
   setSearch: (q: string) => void;
@@ -60,7 +64,14 @@ export const useUI = create<UIState>((set) => ({
   // Default to importance-first so the most urgent mail always surfaces on top.
   sortMode: "priority",
   composeOpen: false,
-  setFolder: (key) => set({ folderKey: key, selectedEmailId: null }),
+  accountId: localStorage.getItem("chatita_mail_account") || "all",
+  drawerOpen: false,
+  setAccount: (id) => {
+    localStorage.setItem("chatita_mail_account", id);
+    set({ accountId: id, selectedEmailId: null });
+  },
+  setDrawer: (open) => set({ drawerOpen: open }),
+  setFolder: (key) => set({ folderKey: key, selectedEmailId: null, drawerOpen: false }),
   selectEmail: (id) => set({ selectedEmailId: id }),
   setSearch: (q) => set({ search: q }),
   setSearchMode: (mode) => set({ searchMode: mode }),

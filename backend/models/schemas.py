@@ -30,6 +30,7 @@ class EmailIn(BaseModel):
 
 class EmailOut(BaseModel):
     id: str
+    account_id: str | None = None
     from_address: str
     from_name: str | None
     subject: str | None
