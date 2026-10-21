@@ -14,6 +14,8 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+
+_HOME = "/"
 from jose import JWTError, jwt
 
 from backend.config import settings
@@ -57,20 +59,20 @@ async def callback(code: str = "", state: str = "", error: str = ""):
     try:
         nxt = jwt.decode(state, settings.secret_key, algorithms=["HS256"]).get("n", "/")
     except JWTError:
-        return JSONResponse({"error": "invalid state"}, status_code=400)
+        return RedirectResponse("/?error=invalid_state")
     if error or not code:
-        return JSONResponse({"error": error or "no code"}, status_code=400)
+        return RedirectResponse("/?error=denied")
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.post(GOOGLE_TOKEN, data={
             "client_id": settings.google_oauth_client_id, "client_secret": settings.google_oauth_client_secret,
             "code": code, "grant_type": "authorization_code", "redirect_uri": _cb()})
     if r.status_code != 200:
-        return JSONResponse({"error": "token exchange failed"}, status_code=400)
+        return RedirectResponse("/?error=token_failed")
     claims = jwt.get_unverified_claims(r.json().get("id_token", ""))
     email = (claims.get("email") or "").lower()
     if not claims.get("email_verified") or email not in _allowed():
         logger.warning("login denied for %s", email)
-        return JSONResponse({"error": "not allowed"}, status_code=403)
+        return RedirectResponse("/?error=not_allowed")
     tok = jwt.encode({"sub": email, "exp": int(time.time()) + settings.session_ttl_hours * 3600},
                      settings.secret_key, algorithm="HS256")
     resp = RedirectResponse(nxt)
