@@ -30,6 +30,18 @@
 
 ---
 
+## TAREAS: REINICIO, CORTE 2026-10-01 Y FILTRO DE VALOR — 21-Oct-2026 (DEPLOY-VERIFICADO)
+
+- **Reinicio reversible (21-Oct, 21:36 UTC):** 1,591 tareas pendientes pasaron a `dismissed` con respaldo local previo (`~/quipu_local/backups/…jsonl`); nada se borró. Pendientes: 0.
+- **Generación nueva (commit `f98014c`):** solo de correos recibidos desde `2026-10-01` (`TASK_EXTRACT_SINCE`; la extracción manual puede forzar); filtro de valor V1/V2/V4/V5/V6/V9, tope de 3 por correo, dedupe por huella dentro del correo y entre correos del mismo remitente (30 días); la reextracción **ya no resucita** tareas hechas o descartadas; completar o cancelar sella `completed_at` y `closed_via` y salda duplicados pendientes del mismo aviso. API: `offset`, `order=value|deadline|created`, `GET /api/tasks/counts`; `PATCH` solo acepta `pending|done|dismissed`.
+- **UI:** vistas Todas/Hoy/Esta semana/Vencidas/Sin fecha/Completadas, prioridad con color + texto + forma, cancelar con deshacer, búsqueda, "Ver más".
+- **Evidencia:** pytest 22 nuevas + 11 existentes en verde; `tsc --noEmit` sin errores; `vite build` ok; en M5: respaldo `/opt/chatita-mail/backups/pre-tasks-20261021-215459/` (volcado de `tasks` y `commitments` de 422,111 bytes, código previo y `dist` previo), `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at, closed_via`, sha256 de 8 archivos iguales entre prod y local, `chatita-mail.service` activo, `/health` 200, `/api/tasks/counts` 200 por la URL pública del hub, bundle servido por `mail.chatita.ai/mail/assets/index-B3Ut47eL.js` con el mismo sha256 que el build local.
+- **Prod difiere del repo:** `/opt/chatita-mail` tiene su propio historial git (`dbbdc7e`) y cambios sin commit; `backend/services/triage.py` de prod es **distinto** del local (no se tocó). El despliegue se hizo copiando archivos, no con `git pull`. `scripts/deploy.sh` está vacío.
+- **Pendiente:** adjuntos como fuente de tareas, cierre por evidencia (correo enviado, comprobante), motivo de cancelación y regla persistente, cambiar prioridad desde la UI.
+- **Rollback:** restaurar `code_before.tgz` y `dist_before` del respaldo y reiniciar; las columnas nuevas son aditivas y no estorban al código anterior.
+
+---
+
 ## 🚀 DEPLOY PROD — 23-Jul-2026 (VERIFICADO)
 
 Servidor: `chatita.ai` (54.212.177.221), SSH puerto 2222, `ec2-user`.
