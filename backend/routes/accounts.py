@@ -24,7 +24,7 @@ PALETTE = ["#6366F1", "#10B981", "#F59E0B", "#EF4444", "#06B6D4", "#8B5CF6", "#E
 # Known IMAP/SMTP presets for password-based providers.
 IMAP_PRESETS = {
     "workmail": {"imap_host": "imap.mail.us-east-1.awsapps.com", "imap_port": 993,
-                 "smtp_host": "smtp.mail.us-east-1.awsapps.com", "smtp_port": 587},
+                 "smtp_host": "smtp.mail.us-east-1.awsapps.com", "smtp_port": 465},
     "icloud": {"imap_host": "imap.mail.me.com", "imap_port": 993,
                "smtp_host": "smtp.mail.me.com", "smtp_port": 587},
     "outlook_imap": {"imap_host": "outlook.office365.com", "imap_port": 993,
@@ -57,6 +57,7 @@ class AccountCreate(BaseModel):
     # password-based (imap/icloud only); never returned by the API
     password: str | None = None
     imap_preset: str | None = None
+    autodiscover: bool = True
     imap_host: str | None = None
     imap_port: int | None = None
     smtp_host: str | None = None
@@ -130,10 +131,18 @@ async def create_account(body: AccountCreate, session: AsyncSession = Depends(ge
         a.auth_type, a.status = "oauth", "pending_auth"
     else:
         preset = IMAP_PRESETS.get(body.imap_preset or ("icloud" if body.provider == "icloud" else ""), {})
-        a.imap_host = body.imap_host or preset.get("imap_host")
-        a.imap_port = body.imap_port or preset.get("imap_port", 993)
-        a.smtp_host = body.smtp_host or preset.get("smtp_host")
-        a.smtp_port = body.smtp_port or preset.get("smtp_port", 587)
+        imap_host = body.imap_host or preset.get("imap_host")
+        imap_port = body.imap_port or preset.get("imap_port", 993)
+        smtp_host = body.smtp_host or preset.get("smtp_host")
+        smtp_port = body.smtp_port or preset.get("smtp_port", 587)
+        if not imap_host and body.autodiscover:
+            import asyncio
+            det = await asyncio.to_thread(discovery.detect, addr)
+            if det.imap:
+                imap_host, imap_port = det.imap
+                smtp_host = smtp_host or (det.smtp[0] if det.smtp else None)
+                smtp_port = body.smtp_port or (det.smtp[1] if det.smtp else 465)
+        a.imap_host, a.imap_port, a.smtp_host, a.smtp_port = imap_host, imap_port, smtp_host, smtp_port
         a.auth_type = "password"
         if body.password and a.imap_host:
             a.credentials_enc = crypto.encrypt({"username": addr, "password": body.password})
