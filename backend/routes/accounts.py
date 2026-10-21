@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import settings
 from backend.models.db import get_session
 from backend.models.entities import AccountProvider, Email, EmailAccount, EmailStatus
-from backend.services.accounts import crypto, oauth
+from backend.services.accounts import crypto, discovery, oauth
 from backend.services.email.account_connectors import build_connector
 from backend.services.email.account_sync import sync_account
 
@@ -57,6 +57,19 @@ class AccountCreate(BaseModel):
     # password-based (imap/icloud only); never returned by the API
     password: str | None = None
     imap_preset: str | None = None
+    imap_host: str | None = None
+    imap_port: int | None = None
+    smtp_host: str | None = None
+    smtp_port: int | None = None
+
+
+class DiscoverIn(BaseModel):
+    email_address: EmailStr
+
+
+class PasswordConnectIn(BaseModel):
+    password: str = Field(min_length=1)
+    username: str | None = None
     imap_host: str | None = None
     imap_port: int | None = None
     smtp_host: str | None = None
@@ -231,3 +244,50 @@ async def oauth_callback(provider: str, state: str = "", code: str = "", error: 
     except Exception as exc:  # noqa: BLE001
         logger.warning("oauth callback failed: %s", exc)
         return RedirectResponse(f"{back}?settings=accounts&error={str(exc)[:120]}")
+
+
+@router.post("/discover")
+async def discover(body: DiscoverIn) -> dict:
+    """Detect provider + servers from the address (DNS only; no login attempted)."""
+    import asyncio
+    return (await asyncio.to_thread(discovery.detect, body.email_address)).as_dict()
+
+
+@router.post("/{account_id}/connect-password")
+async def connect_password(account_id: str, body: PasswordConnectIn,
+                           session: AsyncSession = Depends(get_session)) -> dict:
+    """Apple-Mail-style setup: discover servers, test IMAP (+SMTP) with the typed password, save only on success.
+
+    At most one IMAP login attempt per call (avoids provider lockouts). Microsoft 365 is reported as
+    `login_disabled` without attempting a login: Exchange Online only accepts OAuth over IMAP.
+    """
+    import asyncio
+    a = await _get(session, account_id)
+    det = await asyncio.to_thread(discovery.detect, a.email_address)
+    manual = bool(body.imap_host)
+    imap_host = body.imap_host or (det.imap[0] if det.imap else None)
+    imap_port = body.imap_port or (det.imap[1] if det.imap else 993)
+    smtp_host = body.smtp_host or (det.smtp[0] if det.smtp else None)
+    smtp_port = body.smtp_port or (det.smtp[1] if det.smtp else 465)
+    user = body.username or a.email_address
+    out: dict = {"detection": det.as_dict(), "tried": {"imap_host": imap_host, "imap_port": imap_port, "username": user}}
+    if not imap_host:
+        return {**out, "ok": False, "code": "no_server",
+                "message": "No pude encontrar el servidor de correo de este dominio. Indícalo manualmente."}
+    imap = await asyncio.to_thread(discovery.test_imap, imap_host, imap_port, user, body.password)
+    out["imap"] = imap
+    if not imap["ok"]:
+        a.last_error = f"{imap.get('code')}: {imap.get('message')}"[:500]
+        out.update(ok=False, code=imap.get("code"), message=imap.get("message"))
+        if imap.get("code") == "login_disabled" and det.method == "oauth_microsoft":
+            out["suggest"] = "oauth_microsoft"
+            out["oauth_ready"] = oauth.configured("microsoft")
+        return out
+    smtp = await asyncio.to_thread(discovery.test_smtp, smtp_host, smtp_port, user, body.password) if smtp_host else {"ok": False, "code": "no_server", "message": "Sin servidor SMTP"}
+    out["smtp"] = smtp
+    a.provider, a.auth_type, a.status, a.last_error = AccountProvider.IMAP, "password", "connected", None
+    a.imap_host, a.imap_port, a.smtp_host, a.smtp_port = imap_host, imap_port, smtp_host, smtp_port
+    a.credentials_enc = crypto.encrypt({"username": user, "password": body.password})
+    await session.flush()
+    return {**out, "ok": True, "code": "ok", "manual": manual,
+            "message": "Cuenta conectada" + ("" if smtp["ok"] else " (envío SMTP no verificado: " + str(smtp.get("message")) + ")")}

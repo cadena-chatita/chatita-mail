@@ -417,4 +417,32 @@ export const syncAccount = async (id: string) => (await api.post(`/accounts/${id
 export const setAccountPassword = async (id: string, password: string) =>
   (await api.post(`/accounts/${id}/password`, { password })).data;
 
+export interface Detection {
+  domain: string;
+  provider: "microsoft365" | "google" | "godaddy" | "workmail" | "icloud" | "titan" | "unknown";
+  method: "password" | "oauth_microsoft" | "oauth_google";
+  imap_host: string | null;
+  imap_port: number | null;
+  smtp_host: string | null;
+  smtp_port: number | null;
+  evidence: string[];
+}
+export interface ConnectResult {
+  ok: boolean;
+  code: string;
+  message: string;
+  detection: Detection;
+  tried: { imap_host: string | null; imap_port: number | null; username: string };
+  imap?: { ok: boolean; code?: string; message?: string; capabilities?: string };
+  smtp?: { ok: boolean; code?: string; message?: string };
+  suggest?: "oauth_microsoft";
+  oauth_ready?: boolean;
+}
+export const discoverAccount = async (email_address: string): Promise<Detection> =>
+  (await api.post<Detection>("/accounts/discover", { email_address })).data;
+export const connectPassword = async (
+  id: string,
+  b: { password: string; username?: string; imap_host?: string; imap_port?: number; smtp_host?: string; smtp_port?: number }
+): Promise<ConnectResult> => (await api.post<ConnectResult>(`/accounts/${id}/connect-password`, b)).data;
+
 export default api;

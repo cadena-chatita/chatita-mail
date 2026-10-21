@@ -69,8 +69,12 @@ class GenericImapConnector(ICloudConnector):
             msg["Cc"] = ", ".join(cc)
         rcpts = list(to) + list(cc or []) + list(bcc or [])
         msg.set_content(body_text)
-        with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30) as s:
-            s.starttls(context=ssl.create_default_context())
+        ctx = ssl.create_default_context()
+        smtp = (smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, timeout=30, context=ctx)
+                if self.smtp_port == 465 else smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30))
+        with smtp as s:
+            if self.smtp_port != 465:
+                s.starttls(context=ctx)
             s.login(self.username, self.app_password)
             s.send_message(msg, to_addrs=rcpts)
         return {"ok": True}

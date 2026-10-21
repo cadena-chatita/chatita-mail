@@ -31,3 +31,12 @@ DNS Route53 `mail.chatita.ai A 44.247.163.1`; nginx `/etc/nginx/conf.d/mail-chat
 
 ## Cron (M5)
 `scripts/sync_all_accounts.py` cada 10 min (cuentas con `auth_type` definido). Gmail DWD e iCloud legados siguen con `sync_gmail.sh` / `sync_icloud.sh`.
+
+## Cuentas GoDaddy / Microsoft 365 (decision 2026-10-21)
+- Verificado: `outlook.office365.com:993` anuncia `LOGINDISABLED` y solo `AUTH=XOAUTH2` -> Microsoft 365 NO acepta contrasena por IMAP
+  (GoDaddy: "Microsoft 365 no longer supports POP and IMAP settings in Outlook, Apple Mail..."; Microsoft: Basic auth disabled). Apple Mail usa
+  Exchange + inicio de sesion de Microsoft (OAuth), no contrasena.
+- GoDaddy Workspace/Professional Email (legacy) si usa contrasena: `imap.secureserver.net:993` SSL, `smtpout.secureserver.net:465` SSL.
+- `POST /api/accounts/discover` (DNS, sin login), `POST /api/accounts/{id}/connect-password` (prueba IMAP+SMTP, guarda solo si funciona,
+  max. 1 intento IMAP por llamada; M365 se reporta `login_disabled` sin intentar login).
+- Para M365: una sola app de Entra multi-tenant (cualquier directorio gratuito, sin ser admin de GoDaddy) y `MS_CLIENT_ID/SECRET` en `.env`.

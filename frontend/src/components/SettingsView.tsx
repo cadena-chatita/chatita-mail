@@ -4,10 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
 import { CheckCircle2, AlertTriangle, Clock, Plus, RefreshCw, Trash2, PlugZap, Power, Star, Download, KeyRound } from "lucide-react";
 import {
-  authorizeAccount, createAccount, deleteAccount, listAccounts, patchAccount,
-  setAccountPassword, syncAccount, testAccount, type NewAccount,
+  authorizeAccount, createAccount, deleteAccount, discoverAccount, listAccounts, patchAccount,
+  syncAccount, testAccount, type NewAccount,
 } from "../api/client";
 import { providerLabel } from "./AccountSwitcher";
+import ConnectPasswordModal from "./ConnectPasswordModal";
 import { relativeDate } from "../lib/format";
 import type { Account } from "../types";
 
@@ -25,13 +26,11 @@ function errMsg(e: unknown): string {
   return r || (e as Error).message;
 }
 
-function AccountCard({ a }: { a: Account }) {
+function AccountCard({ a, onConnect }: { a: Account; onConnect: (a: Account) => void }) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: ["accounts"] });
   const [name, setName] = useState(a.display_name ?? "");
-  const [pw, setPw] = useState("");
   const st = STATUS[a.status];
-  const needsPassword = (a.provider === "imap" || a.provider === "icloud") && a.status === "pending_auth";
 
   const connect = useMutation({
     mutationFn: () => authorizeAccount(a.id),
@@ -49,11 +48,6 @@ function AccountCard({ a }: { a: Account }) {
     onError: (e) => toast.error(errMsg(e)),
   });
   const patch = useMutation({ mutationFn: (b: Parameters<typeof patchAccount>[1]) => patchAccount(a.id, b), onSuccess: refresh, onError: (e) => toast.error(errMsg(e)) });
-  const pass = useMutation({
-    mutationFn: () => setAccountPassword(a.id, pw),
-    onSuccess: () => { setPw(""); toast.success("Contraseña guardada (cifrada)"); refresh(); },
-    onError: (e) => toast.error(errMsg(e)),
-  });
   const del = useMutation({
     mutationFn: (purge: boolean) => deleteAccount(a.id, purge),
     onSuccess: () => { toast.success("Cuenta dada de baja"); refresh(); qc.invalidateQueries(); },
@@ -92,18 +86,12 @@ function AccountCard({ a }: { a: Account }) {
         </div>
       )}
 
-      {needsPassword && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Contraseña / contraseña de aplicación"
-            autoComplete="new-password" className="flex-1 min-w-[200px] rounded-md border border-slate-200 px-2.5 py-1.5 text-sm" />
-          <button disabled={!pw || pass.isPending} onClick={() => pass.mutate()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 text-white text-sm px-3 py-1.5 disabled:opacity-50">
-            <KeyRound size={14} /> Guardar
-          </button>
-        </div>
-      )}
-
       <div className="mt-3 flex flex-wrap items-center gap-2">
+        {a.auth_type !== "dwd" && a.auth_type !== null && a.provider !== "gmail" && (
+          <button onClick={() => onConnect(a)} className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 text-white text-sm px-3 py-1.5 hover:bg-slate-700">
+            <KeyRound size={14} /> {a.status === "connected" ? "Cambiar contraseña / servidor" : "Conectar con contraseña"}
+          </button>
+        )}
         {(a.provider === "gmail" || a.provider === "microsoft") && a.auth_type !== null && (
           <button onClick={() => connect.mutate()} disabled={connect.isPending}
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 text-white text-sm px-3 py-1.5 hover:bg-indigo-500 disabled:opacity-50">
@@ -133,16 +121,27 @@ function AccountCard({ a }: { a: Account }) {
   );
 }
 
-function AddAccount() {
+function AddAccount({ onCreated }: { onCreated: (a: Account) => void }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [f, setF] = useState<NewAccount>({ email_address: "", provider: "gmail" });
   const create = useMutation({
     mutationFn: () => createAccount(f),
-    onSuccess: () => { toast.success("Cuenta agregada"); setOpen(false); setF({ email_address: "", provider: "gmail" }); qc.invalidateQueries({ queryKey: ["accounts"] }); },
+    onSuccess: (a) => { toast.success("Cuenta agregada"); onCreated(a); setOpen(false); setF({ email_address: "", provider: "gmail" }); qc.invalidateQueries({ queryKey: ["accounts"] }); },
     onError: (e) => toast.error(errMsg(e)),
   });
   const usesPassword = f.provider === "imap" || f.provider === "icloud";
+  const [detected, setDetected] = useState("");
+  const detect = async () => {
+    if (!f.email_address.includes("@")) return;
+    try {
+      const d = await discoverAccount(f.email_address);
+      const map = { microsoft365: "microsoft", google: "gmail", icloud: "icloud" } as const;
+      const names: Record<string, string> = { microsoft365: "Microsoft 365 (se conecta con inicio de sesión de Microsoft)", google: "Google", godaddy: "GoDaddy Workspace (contraseña)", workmail: "Amazon WorkMail (contraseña)", icloud: "iCloud", titan: "Titan", unknown: "servidor no identificado (podrás indicarlo a mano)" };
+      setDetected(names[d.provider]);
+      setF((v) => ({ ...v, provider: (map as Record<string, Account["provider"]>)[d.provider] ?? "imap" }));
+    } catch { setDetected(""); }
+  };
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 text-white text-sm font-semibold px-4 py-2 hover:bg-indigo-500">
@@ -160,7 +159,7 @@ function AddAccount() {
           </button>
         ))}
       </div>
-      <input value={f.email_address} onChange={(e) => setF({ ...f, email_address: e.target.value.trim() })} type="email" inputMode="email"
+      <input value={f.email_address} onChange={(e) => setF({ ...f, email_address: e.target.value.trim() })} type="email" inputMode="email" onBlur={detect}
         placeholder="correo@dominio.com" className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
       <input value={f.display_name ?? ""} onChange={(e) => setF({ ...f, display_name: e.target.value })} placeholder="Nombre visible (opcional)"
         className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
@@ -179,20 +178,37 @@ function AddAccount() {
           )}
         </div>
       )}
-      {usesPassword && (
-        <input type="password" autoComplete="new-password" placeholder="Contraseña (o contraseña de aplicación)"
-          onChange={(e) => setF({ ...f, password: e.target.value })} className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
-      )}
       <p className="text-xs text-slate-500">
         {usesPassword
-          ? "La contraseña se cifra en el servidor y nunca vuelve al navegador."
+          ? "Al agregarla se abrirá un asistente que busca el servidor y prueba tu contraseña (se guarda cifrada solo si funciona)."
           : "Después de agregarla, usa «Conectar» para iniciar sesión en el proveedor y autorizar el acceso."}
+        {detected && <span className="block mt-1 font-medium text-indigo-700">Detectado: {detected}</span>}
       </p>
       <div className="flex gap-2">
         <button disabled={!f.email_address.includes("@") || create.isPending} onClick={() => create.mutate()} className="rounded-md bg-slate-900 text-white text-sm px-4 py-2 disabled:opacity-50">Agregar</button>
         <button onClick={() => setOpen(false)} className="rounded-md border border-slate-200 bg-white text-sm px-4 py-2">Cancelar</button>
       </div>
     </div>
+  );
+}
+
+function MicrosoftHelp() {
+  return (
+    <details className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+      <summary className="cursor-pointer font-semibold text-slate-800">Conectar cuentas Microsoft 365 (GoDaddy u otras)</summary>
+      <div className="mt-3 space-y-2 leading-relaxed">
+        <p>Microsoft 365 desactivó el acceso con contraseña por IMAP/POP/EWS. Apple Mail, Outlook y Chatita Mail inician sesión con una ventana de Microsoft: tú escribes la contraseña ahí y Chatita solo recibe un permiso revocable.</p>
+        <p><b>Registro único de la app (no requiere ser administrador de GoDaddy ni de los dominios):</b></p>
+        <ol className="list-decimal ml-5 space-y-1">
+          <li>Entra a <b>entra.microsoft.com</b> con cualquier cuenta Microsoft (si no tienes directorio, crea uno gratis) → Aplicaciones → Registros de aplicaciones → Nuevo registro.</li>
+          <li>Tipos de cuenta: <b>«Cuentas en cualquier directorio organizativo y cuentas personales de Microsoft»</b>.</li>
+          <li>URI de redirección (Web): <code className="bg-slate-100 px-1 rounded">https://mail.chatita.ai/api/accounts/oauth/microsoft/callback</code></li>
+          <li>Permisos de API → Microsoft Graph → Delegados: <code>Mail.ReadWrite</code>, <code>Mail.Send</code>, <code>User.Read</code>, <code>offline_access</code>.</li>
+          <li>Certificados y secretos → nuevo secreto de cliente. Entrega el <i>ID de aplicación</i> y el <i>valor</i> del secreto para guardarlos en el servidor.</li>
+        </ol>
+        <p>Si el administrador de un dominio bloquea el consentimiento de usuarios, aparecerá «necesita aprobación del administrador» al conectar esa cuenta.</p>
+      </div>
+    </details>
   );
 }
 
@@ -220,6 +236,7 @@ function InstallApp() {
 export default function SettingsView() {
   const { data: accounts = [], isLoading } = useQuery({ queryKey: ["accounts"], queryFn: listAccounts });
   const qc = useQueryClient();
+  const [connectFor, setConnectFor] = useState<Account | null>(null);
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     if (q.get("connected")) toast.success(`Cuenta conectada: ${q.get("connected")}`);
@@ -237,11 +254,13 @@ export default function SettingsView() {
         <section className="space-y-3">
           <div className="flex items-center"><h3 className="font-semibold text-slate-800">Cuentas ({accounts.length})</h3></div>
           {isLoading && <div className="text-sm text-slate-400">Cargando…</div>}
-          {accounts.map((a) => <AccountCard key={a.id} a={a} />)}
-          <AddAccount />
+          {accounts.map((a) => <AccountCard key={a.id} a={a} onConnect={setConnectFor} />)}
+          <AddAccount onCreated={(a) => a.provider !== "gmail" && a.provider !== "microsoft" && setConnectFor(a)} />
         </section>
+        <MicrosoftHelp />
         <InstallApp />
       </div>
+      {connectFor && <ConnectPasswordModal account={accounts.find((x) => x.id === connectFor.id) ?? connectFor} onClose={() => setConnectFor(null)} />}
     </div>
   );
 }
