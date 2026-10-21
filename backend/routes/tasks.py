@@ -2,25 +2,29 @@
 Chatita Mail v3.0 — Phase 2: Tasks & Commitments routes.
 
 Surfaces AION-extracted actionable items so the user can act in <=5 min/day:
-  GET   /api/tasks                    -> open tasks across the mailbox
+  GET   /api/tasks                    -> tasks (filter by status; order=value|deadline|created; offset)
+  GET   /api/tasks/counts             -> counts per view (pending, overdue, today, week, no_date...)
   GET   /api/commitments              -> open commitments
   POST  /api/inbox/emails/{id}/extract-> (re)run extraction for one email
   PATCH /api/tasks/{id}               -> update task status (done|dismissed|pending)
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
 from backend.models.db import get_session
 from backend.models.entities import Commitment, Email, Task
-from backend.models.schemas import CommitmentOut, TaskOut, TaskStatusIn
+from backend.models.schemas import CommitmentOut, TaskCountsOut, TaskOut, TaskStatusIn
 from backend.services.workflow import Composer, StyleLearningEngine, TaskExtractor
 from backend.services.workflow.composer import detect_language
+from backend.services.workflow.task_lifecycle import set_status
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api", tags=["workflow"])
@@ -41,19 +45,59 @@ class DraftReplyIn(BaseModel):
     instructions: str | None = None
 
 
+_PRIORITY_RANK = case(
+    (Task.priority == "critical", 0),
+    (Task.priority == "high", 1),
+    (Task.priority == "medium", 2),
+    (Task.priority == "low", 3),
+    else_=2,
+)
+
+
 @router.get("/tasks", response_model=list[TaskOut])
 async def list_tasks(
     status: str | None = Query(None, description="pending | done | dismissed"),
     limit: int = Query(100, le=500),
+    offset: int = Query(0, ge=0),
+    order: str = Query("deadline", pattern="^(deadline|value|created)$"),
     session: AsyncSession = Depends(get_session),
 ) -> list[TaskOut]:
-    stmt = select(Task).order_by(
-        Task.deadline.asc().nullslast(), Task.created_at.desc()
-    ).limit(limit)
+    if order == "value":
+        # priority first, then the soonest deadline (undated last), then newest
+        ordering = (_PRIORITY_RANK.asc(), Task.deadline.asc().nullslast(), Task.created_at.desc())
+    elif order == "created":
+        ordering = (Task.created_at.desc(),)
+    else:
+        ordering = (Task.deadline.asc().nullslast(), Task.created_at.desc())
+    stmt = select(Task).order_by(*ordering).limit(limit).offset(offset)
     if status:
         stmt = stmt.where(Task.status == status)
     rows = (await session.scalars(stmt)).all()
     return [TaskOut.model_validate(t) for t in rows]
+
+
+@router.get("/tasks/counts", response_model=TaskCountsOut)
+async def task_counts(session: AsyncSession = Depends(get_session)) -> TaskCountsOut:
+    now = datetime.now(timezone.utc)
+    end_today = now.replace(hour=23, minute=59, second=59, microsecond=0)
+    end_week = now + timedelta(days=7)
+    pend = Task.status == "pending"
+    row = (
+        await session.execute(
+            select(
+                func.count().filter(pend),
+                func.count().filter(Task.status == "done"),
+                func.count().filter(Task.status == "dismissed"),
+                func.count().filter(pend, Task.deadline < now),
+                func.count().filter(pend, Task.deadline >= now, Task.deadline <= end_today),
+                func.count().filter(pend, Task.deadline > end_today, Task.deadline <= end_week),
+                func.count().filter(pend, Task.deadline.is_(None)),
+            )
+        )
+    ).one()
+    return TaskCountsOut(
+        pending=row[0], done=row[1], dismissed=row[2], overdue=row[3], today=row[4], week=row[5], no_date=row[6]
+    )
 
 
 @router.get("/commitments", response_model=list[CommitmentOut])
@@ -95,11 +139,12 @@ async def extract_email(
     email = await session.scalar(select(Email).where(Email.id == email_id))
     if not email:
         raise HTTPException(status_code=404, detail="Email not found")
-    result = await _extractor.extract_and_persist(session, email, replace=True)
+    result = await _extractor.extract_and_persist(session, email, replace=True, force=True)
     return {
         "email_id": email_id,
         "source": result.source,
         "tasks_extracted": len(result.tasks),
+        "tasks_filtered_out": len(result.dropped),
         "commitments_extracted": len(result.commitments),
         "tasks": result.tasks,
         "commitments": result.commitments,
@@ -113,8 +158,7 @@ async def update_task(
     task = await session.scalar(select(Task).where(Task.id == task_id))
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    task.status = payload.status
-    await session.flush()
+    await set_status(session, task, payload.status, via="user")
     return TaskOut.model_validate(task)
 
 

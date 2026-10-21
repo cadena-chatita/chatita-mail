@@ -4,6 +4,7 @@ Chatita Mail v3.0 — Pydantic schemas (API request/response models).
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -87,6 +88,8 @@ class TaskOut(BaseModel):
     deadline: datetime | None = None
     status: str
     created_at: datetime | None = None
+    completed_at: datetime | None = None
+    closed_via: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -104,7 +107,17 @@ class CommitmentOut(BaseModel):
 
 
 class TaskStatusIn(BaseModel):
-    status: str  # pending | done | dismissed
+    status: Literal["pending", "done", "dismissed"]
+
+
+class TaskCountsOut(BaseModel):
+    pending: int
+    done: int
+    dismissed: int
+    overdue: int
+    today: int
+    week: int
+    no_date: int
 
 
 # ── Classification ──────────────────────────────────────────

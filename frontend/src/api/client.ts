@@ -10,6 +10,7 @@ import type {
   InboxStats,
   SyncResult,
   Task,
+  TaskCounts,
 } from "../types";
 
 // API base: local dev uses the Vite proxy ("/api"); prod behind nginx at
@@ -137,8 +138,16 @@ export async function releaseFromQuarantine(id: string): Promise<unknown> {
 }
 
 // ── Phase 2: Tasks & Commitments ───────────────────────────
-export async function listTasks(status = "pending"): Promise<Task[]> {
-  const { data } = await api.get<Task[]>("/tasks", { params: { status } });
+export async function listTasks(
+  status = "pending",
+  opts: { limit?: number; offset?: number; order?: "value" | "deadline" | "created" } = {},
+): Promise<Task[]> {
+  const { data } = await api.get<Task[]>("/tasks", { params: { status, ...opts } });
+  return data;
+}
+
+export async function getTaskCounts(): Promise<TaskCounts> {
+  const { data } = await api.get<TaskCounts>("/tasks/counts");
   return data;
 }
 

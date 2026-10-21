@@ -18,14 +18,23 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from dateutil import parser as dateparser
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.ai.aion_client import AIONBrainClient
-from backend.models.entities import Commitment, Email, Task
+from backend.config import settings
+from backend.models.entities import Classification, Commitment, Email, Task
+from backend.services.workflow.task_value import (
+    aware,
+    filter_tasks,
+    fingerprint,
+    is_bulk_sender,
+    is_sensitive,
+    parse_cutoff,
+)
 
 logger = logging.getLogger("chatita_mail.workflow")
 
@@ -33,8 +42,11 @@ _MAX_BODY = 4000  # chars sent to the LLM (cost control)
 
 _PROMPT = """You are an executive assistant. Read the email below and extract:
 1. TASKS: concrete actions the RECIPIENT must take. Each task: a short imperative \
-description, optional ISO-8601 deadline, type (calendar|document|reply|payment|reminder|other), \
-priority (high|medium|low).
+description that NAMES the object (never just "review" or "check"), optional ISO-8601 deadline, \
+type (calendar|document|reply|payment|reminder|other), priority (high|medium|low). \
+Be strict: at most 3 tasks; ignore marketing, receipts, informational notices, shipping or travel \
+boilerplate, and anything whose deadline already passed. NEVER include verification codes, \
+passwords or card numbers. When unsure whether it needs real action, return no task.
 2. COMMITMENTS: explicit promises. who = "me" (recipient) or "sender"; what = the promise; \
 optional ISO-8601 deadline.
 
@@ -56,7 +68,8 @@ BODY:
 class ExtractionResult:
     tasks: list[dict] = field(default_factory=list)
     commitments: list[dict] = field(default_factory=list)
-    source: str = "llm"  # llm | fallback | none
+    source: str = "llm"  # llm | fallback | none | skipped_before_cutoff
+    dropped: list[tuple[str, str]] = field(default_factory=list)  # (description, rule)
 
 
 class TaskExtractor:
@@ -71,10 +84,14 @@ class TaskExtractor:
         from_name: str | None,
         subject: str | None,
         body_text: str | None,
+        received_at: datetime | None = None,
+        is_bulk: bool | None = None,
     ) -> ExtractionResult:
         body = (body_text or "").strip()[:_MAX_BODY]
         if not body and not subject:
             return ExtractionResult(source="none")
+        if is_bulk is None:
+            is_bulk = is_bulk_sender(from_address)
 
         prompt = _PROMPT.format(
             today=datetime.utcnow().date().isoformat(),
@@ -87,43 +104,107 @@ class TaskExtractor:
             resp = await self.aion.orchestrate(prompt, task_type="medium", priority="P2")
             text = (resp or {}).get("text") or ""
             if not text or (resp or {}).get("fallback"):
-                return self._fallback(subject, body)
-            parsed = self._parse_json(text)
-            if parsed is None:
-                return self._fallback(subject, body)
-            return ExtractionResult(
-                tasks=self._clean_tasks(parsed.get("tasks", [])),
-                commitments=self._clean_commitments(parsed.get("commitments", [])),
-                source="llm",
-            )
+                result = self._fallback(subject, body)
+            else:
+                parsed = self._parse_json(text)
+                if parsed is None:
+                    result = self._fallback(subject, body)
+                else:
+                    result = ExtractionResult(
+                        tasks=self._clean_tasks(parsed.get("tasks", [])),
+                        commitments=self._clean_commitments(parsed.get("commitments", [])),
+                        source="llm",
+                    )
         except Exception as exc:  # noqa: BLE001
             logger.warning("TaskExtractor LLM failed: %s", exc)
-            return self._fallback(subject, body)
+            result = self._fallback(subject, body)
+
+        return self._apply_value_filter(
+            result, from_address=from_address, received_at=received_at, is_bulk=is_bulk
+        )
+
+    def _apply_value_filter(
+        self, result: ExtractionResult, *, from_address: str, received_at: datetime | None, is_bulk: bool
+    ) -> ExtractionResult:
+        verdict = filter_tasks(
+            result.tasks,
+            from_address=from_address,
+            received_at=received_at,
+            bulk=is_bulk,
+            max_per_email=settings.task_max_per_email,
+            strict=result.source == "fallback",
+        )
+        result.tasks = verdict.kept
+        result.dropped = verdict.dropped
+        kept_c = []
+        for c in result.commitments:
+            if is_sensitive(c["what"]):
+                result.dropped.append((c["what"], "V6:dato_sensible"))
+            else:
+                kept_c.append(c)
+        result.commitments = kept_c
+        if result.dropped:
+            logger.info("TaskExtractor filtered %d item(s): %s", len(result.dropped),
+                        sorted({r for _, r in result.dropped}))
+        return result
 
     async def extract_and_persist(
-        self, session: AsyncSession, email: Email, *, replace: bool = True
+        self, session: AsyncSession, email: Email, *, replace: bool = True, force: bool = False
     ) -> ExtractionResult:
-        """Extract tasks/commitments for an email and upsert them."""
+        """Extract tasks/commitments for an email and merge them without ever
+        resurrecting something the user already closed.
+
+        * Emails received before `settings.task_extract_since` are skipped unless
+          `force` (manual "Extract tasks" click).
+        * `replace` only refreshes still-PENDING items; done/dismissed ones stay.
+        * The same obligation from the same sender is not recreated within
+          `settings.task_dedupe_days`, whatever its status.
+        """
+        cutoff = parse_cutoff(settings.task_extract_since)
+        received = aware(email.received_at)
+        if not force and received is not None and received < cutoff:
+            return ExtractionResult(source="skipped_before_cutoff")
+
+        cls = await session.scalar(select(Classification).where(Classification.email_id == email.id))
+        bulk = is_bulk_sender(
+            email.from_address,
+            is_newsletter=bool(cls and cls.is_newsletter),
+            has_unsubscribe=bool(cls and cls.unsubscribe_url),
+        )
         result = await self.extract(
             from_address=email.from_address,
             from_name=email.from_name,
             subject=email.subject,
             body_text=email.body_text,
+            received_at=received,
+            is_bulk=bulk,
         )
 
-        if replace:
-            existing_tasks = (
-                await session.scalars(select(Task).where(Task.email_id == email.id))
-            ).all()
-            for t in existing_tasks:
-                await session.delete(t)
-            existing_c = (
-                await session.scalars(select(Commitment).where(Commitment.email_id == email.id))
-            ).all()
-            for c in existing_c:
-                await session.delete(c)
+        existing_tasks = (await session.scalars(select(Task).where(Task.email_id == email.id))).all()
+        closed_or_open_fp = {fingerprint(t.description) for t in existing_tasks}
+        new_fp = {fingerprint(t["description"]) for t in result.tasks}
 
+        if replace:  # drop only stale PENDING tasks; never touch closed ones
+            for t in existing_tasks:
+                if t.status == "pending" and fingerprint(t.description) not in new_fp:
+                    await session.delete(t)
+            existing_c = (await session.scalars(select(Commitment).where(Commitment.email_id == email.id))).all()
+            new_c_fp = {fingerprint(f"{c.get('who')} {c['what']}") for c in result.commitments}
+            for c in existing_c:
+                if c.status == "pending" and fingerprint(f"{c.who} {c.what}") not in new_c_fp:
+                    await session.delete(c)
+        existing_c_fp = {
+            fingerprint(f"{c.who} {c.what}")
+            for c in (await session.scalars(select(Commitment).where(Commitment.email_id == email.id))).all()
+        }
+
+        recent_fp = await self._recent_fingerprints(session, email)
+        added_tasks, added_commits = [], []
         for t in result.tasks:
+            fp = fingerprint(t["description"])
+            if fp in closed_or_open_fp or fp in recent_fp:
+                result.dropped.append((t["description"], "V3:ya_existe"))
+                continue
             session.add(
                 Task(
                     email_id=email.id,
@@ -134,7 +215,10 @@ class TaskExtractor:
                     status="pending",
                 )
             )
+            added_tasks.append(t)
         for c in result.commitments:
+            if fingerprint(f"{c.get('who')} {c['what']}") in existing_c_fp:
+                continue
             session.add(
                 Commitment(
                     email_id=email.id,
@@ -144,8 +228,21 @@ class TaskExtractor:
                     status="pending",
                 )
             )
+            added_commits.append(c)
+        result.tasks, result.commitments = added_tasks, added_commits
         await session.flush()
         return result
+
+    async def _recent_fingerprints(self, session: AsyncSession, email: Email) -> set[str]:
+        since = datetime.now(timezone.utc) - timedelta(days=settings.task_dedupe_days)
+        rows = (
+            await session.scalars(
+                select(Task)
+                .join(Email, Email.id == Task.email_id)
+                .where(Email.from_address == email.from_address, Task.email_id != email.id, Task.created_at >= since)
+            )
+        ).all()
+        return {fingerprint(t.description) for t in rows}
 
     # ── Parsing helpers ─────────────────────────────────────
     @staticmethod

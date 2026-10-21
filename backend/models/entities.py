@@ -202,6 +202,10 @@ class Task(Base):
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(20), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Closure stamp: set when the task is marked done or dismissed (None while open).
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # user | duplicate | evidence — who/what closed it
+    closed_via: Mapped[str | None] = mapped_column(String(20))
 
 
 # ── commitments (Phase 2) ───────────────────────────────────

@@ -74,6 +74,18 @@ export interface Task {
   deadline: string | null;
   status: string;
   created_at: string | null;
+  completed_at?: string | null;
+  closed_via?: string | null;
+}
+
+export interface TaskCounts {
+  pending: number;
+  done: number;
+  dismissed: number;
+  overdue: number;
+  today: number;
+  week: number;
+  no_date: number;
 }
 
 export interface Commitment {

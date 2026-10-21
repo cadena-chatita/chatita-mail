@@ -98,6 +98,15 @@ class Settings(BaseSettings):
     phishing_quarantine_threshold: int = 70
     phishing_block_threshold: int = 90
 
+    # ── Task generation (Quipu DISENO_07: fewer, more recent, higher value) ──
+    # Only emails received on/after this instant generate tasks automatically.
+    task_extract_since: str = "2026-10-01T00:00:00+00:00"
+    # Hard cap of tasks created per email (highest value first).
+    task_max_per_email: int = 3
+    # Same obligation from the same sender is not recreated within this window,
+    # whatever its status (pending, done or dismissed).
+    task_dedupe_days: int = 30
+
     # ── Logging ─────────────────────────────────────────────
     log_level: str = "INFO"
 
