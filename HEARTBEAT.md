@@ -35,8 +35,8 @@
 - **Reinicio reversible (21-Oct, 21:36 UTC):** 1,591 tareas pendientes pasaron a `dismissed` con respaldo local previo (`~/aionagent_local/backups/…jsonl`); nada se borró. Pendientes: 0.
 - **Generación nueva (commit `f98014c`):** solo de correos recibidos desde `2026-10-01` (`TASK_EXTRACT_SINCE`; la extracción manual puede forzar); filtro de valor V1/V2/V4/V5/V6/V9, tope de 3 por correo, dedupe por huella dentro del correo y entre correos del mismo remitente (30 días); la reextracción **ya no resucita** tareas hechas o descartadas; completar o cancelar sella `completed_at` y `closed_via` y salda duplicados pendientes del mismo aviso. API: `offset`, `order=value|deadline|created`, `GET /api/tasks/counts`; `PATCH` solo acepta `pending|done|dismissed`.
 - **UI:** vistas Todas/Hoy/Esta semana/Vencidas/Sin fecha/Completadas, prioridad con color + texto + forma, cancelar con deshacer, búsqueda, "Ver más".
-- **Evidencia:** pytest 22 nuevas + 11 existentes en verde; `tsc --noEmit` sin errores; `vite build` ok; en M5: respaldo `/opt/chatita-mail/backups/pre-tasks-20261021-215459/` (volcado de `tasks` y `commitments` de 422,111 bytes, código previo y `dist` previo), `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at, closed_via`, sha256 de 8 archivos iguales entre prod y local, `chatita-mail.service` activo, `/health` 200, `/api/tasks/counts` 200 por la URL pública del hub, bundle servido por `mail.chatita.ai/mail/assets/index-B3Ut47eL.js` con el mismo sha256 que el build local.
-- **Prod difiere del repo:** `/opt/chatita-mail` tiene su propio historial git (`dbbdc7e`) y cambios sin commit; `backend/services/triage.py` de prod es **distinto** del local (no se tocó). El despliegue se hizo copiando archivos, no con `git pull`. `scripts/deploy.sh` está vacío.
+- **Evidencia:** pytest 22 nuevas + 11 existentes en verde; `tsc --noEmit` sin errores; `vite build` ok; en M5: respaldo la carpeta `backups/` del servicio (volcado de `tasks` y `commitments` de 422,111 bytes, código previo y `dist` previo), `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS completed_at, closed_via`, sha256 de 8 archivos iguales entre prod y local, `chatita-mail.service` activo, `/health` 200, `/api/tasks/counts` 200 por la URL pública del hub, bundle servido por `mail.chatita.ai/mail/assets/index-B3Ut47eL.js` con el mismo sha256 que el build local.
+- **Prod difiere del repo:** el servidor de producción tiene su propio historial git y cambios sin commit; `backend/services/triage.py` de prod es **distinto** del local (no se tocó). El despliegue se hizo copiando archivos, no con `git pull`. `scripts/deploy.sh` está vacío.
 - **Pendiente:** adjuntos como fuente de tareas, cierre por evidencia (correo enviado, comprobante), motivo de cancelación y regla persistente, cambiar prioridad desde la UI.
 - **Rollback:** restaurar `code_before.tgz` y `dist_before` del respaldo y reiniciar; las columnas nuevas son aditivas y no estorban al código anterior.
 
@@ -44,7 +44,7 @@
 
 ## 🚀 DEPLOY PROD — 23-Jul-2026 (VERIFICADO)
 
-Servidor: `chatita.ai` (54.212.177.221), SSH puerto 2222, `ec2-user`.
+Servidor: `chatita.ai` (<IP-servidor-legado>), acceso por SSH (datos en la documentación privada).
 
 | Componente | Estado | Evidencia (M-CHEX) |
 |---|---|---|
@@ -85,7 +85,7 @@ Estas decisiones NO se re-discuten salvo autorización explícita de Manny:
 | **AD-1** | **Standalone** | App autocontenida con su propio backend + frontend |
 | **AD-2** | **AION Brain vía MCP** | NO reimplementar LLM routing. Consumir AION Brain (ya publicado) vía protocolo MCP |
 | **AD-3** | **UI en side menu de Chatita** | Link de acceso dentro del menú lateral de Chatita (localhost + servidor) |
-| **AD-4** | **Doble entorno** | Local (`localhost`) + AWS Chatita (`54.212.177.221`) |
+| **AD-4** | **Doble entorno** | Local (`localhost`) + AWS Chatita (`<IP-servidor-legado>`) |
 | **AD-5** | **Stack backend** | Python 3.11 + FastAPI + PostgreSQL 15 + pgvector + Redis 7 |
 | **AD-6** | **Stack frontend** | React 18 + TypeScript + Vite + TailwindCSS |
 | **AD-7** | **XAI obligatorio** | Toda decisión AI muestra su razonamiento (Liu 2022, Al-Subaiey 2024) |
@@ -108,8 +108,8 @@ UI link:        Chatita local side menu → /mail
 
 ### Entorno PRODUCCIÓN — Servidor "Chatita" (AWS)
 ```
-IP:             54.212.177.221
-SSH:            ssh -i ~/.ssh/citrusmax-key.pem -p 2222 ec2-user@54.212.177.221
+IP:             <IP-servidor-legado>
+SSH:            ssh <alias-del-servidor-legado>
 Dominio:        chatita.ai
 Backend:        /opt/chatita-mail/  → puerto interno 8000
 Frontend:       nginx → https://chatita.ai/mail/
@@ -123,10 +123,10 @@ UI link:        Chatita prod side menu → https://chatita.ai/mail/
 rsync -avz -e "ssh -i ~/.ssh/citrusmax-key.pem -p 2222" \
   --exclude node_modules --exclude .git --exclude __pycache__ --exclude .env \
   /Users/manuelcadena/chatita-local/chatita-mail/ \
-  ec2-user@54.212.177.221:/opt/chatita-mail/
+  ec2-user@<IP-servidor-legado>:/opt/chatita-mail/
 ```
 
-> ⚠️ **REGLA SERVIDOR**: Chatita Mail va en servidor **Chatita (54.212.177.221)**, NO en M5.  
+> ⚠️ **REGLA SERVIDOR**: Chatita Mail va en servidor **Chatita (<IP-servidor-legado>)**, NO en M5.  
 > AION Brain ya está en Chatita. NUNCA confundir servidores.
 
 ---
