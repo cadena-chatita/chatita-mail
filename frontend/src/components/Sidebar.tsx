@@ -162,7 +162,7 @@ export default function Sidebar() {
                 );
               })}
               {g.id === "more" && expanded && (
-                <a href={workspaceUrl()} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-200/60">
+                <a href={workspaceUrl()} target="_top" className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-200/60">
                   <LucideIcon name="MessageSquare" className="text-slate-400" /><span className="flex-1 text-left">Chat de Chatita</span><LucideIcon name="ExternalLink" className="text-slate-300" />
                 </a>
               )}

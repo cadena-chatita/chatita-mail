@@ -10,7 +10,7 @@ import ComposeModal from "./components/ComposeModal";
 import AccessibilityMenu from "./components/AccessibilityMenu";
 import { useEffect } from "react";
 import SettingsView from "./components/SettingsView";
-import { useUI } from "./store";
+import { folderFromHash, useUI } from "./store";
 
 export default function App() {
   const { folderKey, search, setSearch, searchMode, setSearchMode, unreadOnly, toggleUnreadOnly, selectedEmailId, selectEmail, setDrawer, openCompose, setFolder } =
@@ -22,6 +22,13 @@ export default function App() {
     if (q.get("settings")) setFolder("settings");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {      // deep links from Chatita Workspace: /mail/#agent_calendar
+    const h = () => { const k = folderFromHash(); if (k && k !== useUI.getState().folderKey) setFolder(k); };
+    window.addEventListener("hashchange", h);
+    return () => window.removeEventListener("hashchange", h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => { if (location.hash !== `#${folderKey}`) history.replaceState(null, "", `#${folderKey}`); }, [folderKey]);
   const isWorkflow = folderKey === "tasks" || folderKey === "commitments";
   const isAgent = folderKey.startsWith("agent_");
   const overlayOpen = (isWorkflow || isAgent) && !!selectedEmailId;

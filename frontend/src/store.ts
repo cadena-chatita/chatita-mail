@@ -67,8 +67,14 @@ interface UIState {
   closeCompose: () => void;
 }
 
+/** Deep link: Chatita Workspace opens this app on a given view with `/mail/#agent_calendar`. */
+export function folderFromHash(): string | null {
+  const k = location.hash.replace(/^#\/?/, "");
+  return k === "settings" || FOLDERS.some((f) => f.key === k) ? k : null;
+}
+
 export const useUI = create<UIState>((set) => ({
-  folderKey: "inbox",
+  folderKey: folderFromHash() ?? "inbox",
   selectedEmailId: null,
   search: "",
   searchMode: "text",

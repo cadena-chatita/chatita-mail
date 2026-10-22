@@ -83,7 +83,7 @@ export default function CalendarView() {
   const toggleCal = (n: string) => setHidden((h) => (h.includes(n) ? h.filter((x) => x !== n) : [...h, n]));
 
   return (
-    <div className="flex min-h-0 flex-1 bg-white" data-testid="agent-calendar">
+    <div className="flex min-h-0 flex-1 bg-white" data-testid="calendar-root">
       {panel && (
         <aside className="hidden w-60 shrink-0 space-y-4 overflow-y-auto border-r border-slate-200 bg-slate-50/70 p-3 md:block" aria-label="Filtros del calendario">
           <button onClick={() => create(new Date())} className="flex w-full items-center justify-center gap-2 rounded-full bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-indigo-500"><Plus size={16} /> Crear</button>

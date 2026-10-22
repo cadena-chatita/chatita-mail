@@ -4,6 +4,16 @@ import { mockApi, task } from "./fixtures";
 const open = async (page: Page, label: string | RegExp) => { await page.getByRole("button", { name: label }).first().click(); };
 
 test.describe("AION Agent dentro de Chatita Mail", () => {
+  test("un enlace con # abre directo la vista pedida (así lo usa el menú de Chatita Workspace) y reacciona a cambios del #", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("./#agent_calendar");
+    await expect(page.getByTestId("agent-calendar")).toBeVisible();
+    await page.evaluate(() => { location.hash = "agent_cases"; });
+    await expect(page.getByTestId("agent-cases")).toBeVisible();
+    await page.getByRole("button", { name: /^Tareas/ }).first().click();
+    expect(await page.evaluate(() => location.hash)).toBe("#tasks");
+  });
+
   test("la barra lateral junta lo de uso diario en AION Agent y pliega lo demás", async ({ page }) => {
     await mockApi(page);
     await page.goto("./");
