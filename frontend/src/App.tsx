@@ -11,6 +11,7 @@ import AccessibilityMenu from "./components/AccessibilityMenu";
 import { useEffect } from "react";
 import SettingsView from "./components/SettingsView";
 import { folderFromHash, useUI } from "./store";
+import NewVersionBanner from "./components/NewVersionBanner";
 
 export default function App() {
   const { folderKey, search, setSearch, searchMode, setSearchMode, unreadOnly, toggleUnreadOnly, selectedEmailId, selectEmail, setDrawer, openCompose, setFolder } =
@@ -44,6 +45,7 @@ export default function App() {
   return (
     <div className="h-[100dvh] flex bg-slate-100 text-slate-900 overflow-hidden">
       <ComposeModal />
+      <NewVersionBanner />
       <Sidebar />
 
       <div className="flex-1 flex flex-col min-w-0">

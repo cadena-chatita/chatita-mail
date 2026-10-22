@@ -4,6 +4,20 @@ import { mockApi, task } from "./fixtures";
 const open = async (page: Page, label: string | RegExp) => { await page.getByRole("button", { name: label }).first().click(); };
 
 test.describe("AION Agent dentro de Chatita Mail", () => {
+  test("una pestaña vieja avisa que hay versión nueva, y la pantalla muestra su versión", async ({ page }) => {
+    await mockApi(page);
+    await page.addInitScript(() => document.addEventListener("DOMContentLoaded", () => {      // the dev server has no hashed bundle: simulate the one a deployed build has
+      const s = document.createElement("script"); s.type = "text/plain"; s.src = "/mail/assets/index-VIEJO000.js"; document.head.appendChild(s);
+    }));
+    await page.goto("./");
+    await expect(page.getByTestId("build-id")).toContainText("versión");
+    await expect(page.getByTestId("new-version")).toHaveCount(0);
+    await page.route("**/index.html**", (r) => r.fulfill({ status: 200, contentType: "text/html", body: '<script type="module" src="/mail/assets/index-NUEVO123.js"></script>' }));
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(page.getByTestId("new-version")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Actualizar" })).toBeVisible();
+  });
+
   test("un enlace con # abre directo la vista pedida (así lo usa el menú de Chatita Workspace) y reacciona a cambios del #", async ({ page }) => {
     await mockApi(page);
     await page.goto("./#agent_calendar");

@@ -194,6 +194,7 @@ export default function Sidebar() {
           <span>Total de correos</span>
           <span className="font-medium text-slate-600">{stats?.total ?? "—"}</span>
         </div>
+        <div className="pt-1 text-[10px] text-slate-400" title="Versión de esta pantalla: si no coincide con la última publicada, recarga con Cmd+Shift+R" data-testid="build-id">versión {__BUILD_ID__}</div>
       </div>
     </aside>
     </>
