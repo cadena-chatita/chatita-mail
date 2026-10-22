@@ -39,6 +39,28 @@ def fingerprint(value: str | None) -> str:
     return hashlib.sha256(normalize_text(value).encode("utf-8")).hexdigest()[:16]
 
 
+# Same obligation in other words ("Inform X that the fee was paid" / "Inform X that the fee has been paid so ...")
+_STOP = frozenset((
+    "the a an to of for and or that this it is are was were be been has have had so can will with by on in at as from your you we i "
+    "el la los las un una unos unas de del al y o que se es son fue ser ha han para por con en a su sus lo le les"
+).split())
+
+
+def _content_tokens(text: str | None) -> dict[str, int]:
+    """Content words; anything with a digit (order number, amount, id) weighs triple: it names the obligation."""
+    return {w: (3 if any(c.isdigit() for c in w) else 1) for w in normalize_text(text).split() if w not in _STOP and (len(w) > 2 or any(c.isdigit() for c in w))}
+
+
+def same_obligation(a: str | None, b: str | None, threshold: float = 0.6) -> bool:
+    """Weighted Jaccard on content words (the offline rule: no model, deterministic). Different amounts or ids never match."""
+    ta, tb = _content_tokens(a), _content_tokens(b)
+    if not ta or not tb:
+        return False
+    inter = sum(min(ta[w], tb[w]) for w in ta.keys() & tb.keys())
+    union = sum(ta.values()) + sum(tb.values()) - inter
+    return union > 0 and inter / union >= threshold
+
+
 # ── Sensitive data (V6) ─────────────────────────────────────
 _SENSITIVE = (
     re.compile(

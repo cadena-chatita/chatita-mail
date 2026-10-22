@@ -603,3 +603,16 @@ Email entrante
 | Pruebas | backend 37 en verde; e2e: 11 con API simulada y 2 contra el backend local real (sin enviar nada) |
 
 **Verificado en producción (M5):** esquema al día (`schema_missing: []`); `main.py`, `schemas.py` y `schema_sync.py` desplegados con hashes idénticos al repositorio y servicio reiniciado con respaldo previo. El servicio escucha en el puerto 8701 (no en el 8000).
+
+## 2026-10-22 — Tareas duplicadas con otras palabras
+
+**Hallazgo:** la huella de deduplicación solo atrapaba textos casi idénticos; la misma obligación redactada de otra forma ("Inform X that the fee has been paid" y "...so assembly can proceed") creaba tareas repetidas, incluso dentro de una misma extracción.
+
+| Cambio | Detalle |
+|---|---|
+| `task_value.same_obligation` | similitud de Jaccard ponderada sobre palabras de contenido; lo que lleva dígitos (importes, números de orden) pesa triple, así que importes distintos nunca se fusionan; sin modelo, determinista |
+| Extractor | descarta la tarea nueva si repite otra del mismo correo, de la misma extracción o del mismo remitente reciente (`V3:misma_obligacion`) |
+| Cierre de tareas | al completar una tarea también se cierran sus paráfrasis pendientes del mismo remitente (`closed_via=duplicate`) |
+| `scripts/dedupe_tasks.py` | limpia lo existente sin borrar (vista previa por defecto, `--apply` para descartar; reversible) |
+
+**Producción (M5):** 3 archivos y el script desplegados con hashes idénticos, respaldo previo y servicio reiniciado; la limpieza descartó 1 duplicado de 6 pendientes (respaldo de la tabla `tasks` previo). Archivos sueltos `backend/inbox.py` y `backend/schemas.py` movidos a la carpeta de respaldos (sin referencias en el código). Pruebas: backend 45 en verde.

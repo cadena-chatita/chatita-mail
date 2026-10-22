@@ -228,3 +228,50 @@ def test_completing_a_task_settles_pending_duplicates_of_the_same_sender():
 
 def test_default_cutoff_is_october_first_2026():
     assert settings.task_extract_since.startswith("2026-10-01")
+
+
+@pytest.mark.parametrize(
+    "a,b,expected",
+    [
+        ("Inform PCBWay that the component fee has been paid so assembly can proceed", "Inform PCBWay that the component fee has been paid", True),
+        ("Pay the PCBWay component fee through order G1686168", "Inform PCBWay that the component fee has been paid", False),   # paying and informing are two obligations
+        ("Pagar $500 a Proveedor X", "Pagar $900 a Proveedor X", False),                                                      # different amounts never merge
+        ("Send the signed contract to the notary", "Reply to Ana about the payment schedule", False),
+        ("Enviar el contrato firmado al notario", "Enviar al notario el contrato firmado", True),
+        ("", "Pay the invoice", False),
+    ],
+)
+def test_same_obligation_rule(a, b, expected):
+    from backend.services.workflow.task_value import same_obligation
+    assert same_obligation(a, b) is expected
+
+
+def test_paraphrases_within_one_extraction_and_across_emails_become_one_task():
+    para = [
+        {"description": "Inform PCBWay that the component fee has been paid so assembly can proceed", "priority": "high", "deadline": None, "task_type": "reply"},
+        {"description": "Inform PCBWay that the component fee has been paid", "priority": "high", "deadline": None, "task_type": "reply"},
+        {"description": "Pay the PCBWay component fee through order G1686168", "priority": "high", "deadline": None, "task_type": "payment"},
+    ]
+
+    async def go():
+        s = await _session()
+        e1 = await _email(s, sender="svc@pcbway.example", subject="fee")
+        e2 = await _email(s, sender="svc@pcbway.example", subject="fee reminder", received=NOW + timedelta(days=1))
+        ex = TaskExtractor(aion=_FakeAion(para))
+        r1 = await ex.extract_and_persist(s, e1)
+        assert len(r1.tasks) == 2 and any("misma_obligacion" in why for _, why in r1.dropped)
+        await ex.extract_and_persist(s, e2)
+        assert len((await s.scalars(select(Task))).all()) == 2                                      # the reminder adds nothing
+    _run(go())
+
+
+def test_closing_a_task_also_settles_its_paraphrase_from_the_same_sender():
+    async def go():
+        s = await _session()
+        e1 = await _email(s, subject="a"); e2 = await _email(s, subject="b")
+        t1 = Task(email_id=e1.id, description="Inform PCBWay that the component fee has been paid", status="pending")
+        t2 = Task(email_id=e2.id, description="Inform PCBWay that the component fee has been paid so assembly can proceed", status="pending")
+        s.add_all([t1, t2]); await s.flush()
+        settled = await set_status(s, t1, "done")
+        assert [t.id for t in settled] == [t2.id] and t2.closed_via == "duplicate"
+    _run(go())

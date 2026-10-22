@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.models.entities import Email, Task
-from backend.services.workflow.task_value import fingerprint
+from backend.services.workflow.task_value import fingerprint, same_obligation
 
 CLOSED = ("done", "dismissed")
 
@@ -53,7 +53,7 @@ async def _settle_duplicates(session: AsyncSession, task: Task, status: str, now
     ).all()
     settled = []
     for other in rows:
-        if fingerprint(other.description) == fp:
+        if fingerprint(other.description) == fp or same_obligation(other.description, task.description):
             other.status = status
             other.completed_at = now
             other.closed_via = "duplicate"

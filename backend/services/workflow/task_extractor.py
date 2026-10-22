@@ -34,6 +34,7 @@ from backend.services.workflow.task_value import (
     is_bulk_sender,
     is_sensitive,
     parse_cutoff,
+    same_obligation,
 )
 
 logger = logging.getLogger("chatita_mail.workflow")
@@ -184,10 +185,12 @@ class TaskExtractor:
         closed_or_open_fp = {fingerprint(t.description) for t in existing_tasks}
         new_fp = {fingerprint(t["description"]) for t in result.tasks}
 
+        deleted_ids: set = set()
         if replace:  # drop only stale PENDING tasks; never touch closed ones
             for t in existing_tasks:
                 if t.status == "pending" and fingerprint(t.description) not in new_fp:
                     await session.delete(t)
+                    deleted_ids.add(t.id)
             existing_c = (await session.scalars(select(Commitment).where(Commitment.email_id == email.id))).all()
             new_c_fp = {fingerprint(f"{c.get('who')} {c['what']}") for c in result.commitments}
             for c in existing_c:
@@ -198,13 +201,18 @@ class TaskExtractor:
             for c in (await session.scalars(select(Commitment).where(Commitment.email_id == email.id))).all()
         }
 
-        recent_fp = await self._recent_fingerprints(session, email)
+        recent_fp, recent_desc = await self._recent_fingerprints(session, email)
+        seen_desc = [t.description for t in existing_tasks if t.id not in deleted_ids] + recent_desc   # the same obligation in other words
         added_tasks, added_commits = [], []
         for t in result.tasks:
             fp = fingerprint(t["description"])
             if fp in closed_or_open_fp or fp in recent_fp:
                 result.dropped.append((t["description"], "V3:ya_existe"))
                 continue
+            if any(same_obligation(t["description"], d) for d in seen_desc):
+                result.dropped.append((t["description"], "V3:misma_obligacion"))
+                continue
+            seen_desc.append(t["description"])
             session.add(
                 Task(
                     email_id=email.id,
@@ -233,7 +241,7 @@ class TaskExtractor:
         await session.flush()
         return result
 
-    async def _recent_fingerprints(self, session: AsyncSession, email: Email) -> set[str]:
+    async def _recent_fingerprints(self, session: AsyncSession, email: Email) -> tuple[set[str], list[str]]:
         since = datetime.now(timezone.utc) - timedelta(days=settings.task_dedupe_days)
         rows = (
             await session.scalars(
@@ -242,7 +250,7 @@ class TaskExtractor:
                 .where(Email.from_address == email.from_address, Task.email_id != email.id, Task.created_at >= since)
             )
         ).all()
-        return {fingerprint(t.description) for t in rows}
+        return {fingerprint(t.description) for t in rows}, [t.description for t in rows]
 
     # ── Parsing helpers ─────────────────────────────────────
     @staticmethod
