@@ -575,3 +575,18 @@ Email entrante
 
 **FIN DEL HEARTBEAT — Chatita Mail v3.0**  
 *Última línea de defensa contra perder el hilo del desarrollo.*
+
+## 2026-10-22 — Auditoría end-to-end: Responder y "ver correo"
+
+**Reportado por el propietario:** (1) al presionar *Responder* no aparecía la pantalla de respuesta; (2) en Tareas, *ver correo* no mostraba el correo.
+
+| Hallazgo | Causa (verificada con pruebas) | Arreglo |
+|---|---|---|
+| Responder "no hace nada" | el editor se abre **debajo del cuerpo del correo**, fuera de la vista (proporción visible 0 en un correo largo); no se desplazaba ni se enfocaba | el editor se desplaza a la vista y enfoca el cuadro de texto al abrirse o cambiar de modo |
+| *ver correo* no abre nada | la vista de Tareas no monta el panel de lectura: `selectEmail()` cambiaba el estado pero no había dónde mostrarlo | el correo se abre en un panel lateral (con *Cerrar* y Escape) desde Tareas y Compromisos |
+| Riesgo: confirmación de envío con `window.confirm` | puede bloquearse en contextos incrustados | confirmación en la propia pantalla ("Confirmar y enviar") |
+| Móvil sin acceso directo a Tareas | la barra inferior no tenía el botón | se añadió "Tareas" |
+
+**Pruebas:** nueva suite `frontend/e2e/local/` (11 pruebas, `npm run test:e2e:local`) con la API simulada con datos ficticios (el repositorio es público), sin sesión. Antes del arreglo fallaban 6 de las 7 pruebas escritas para estos flujos; después pasan las 11. Backend: 33 pruebas en verde.
+
+**Estado del despliegue (M5):** el cliente nuevo está servido (bundle verificado por hash y por cadenas). **El código del servidor tenía diferencias con este repositorio** (producción iba por delante): `main.py` (ruta de avatar), `services/triage.py` (alertas de Telegram desactivadas por spam el 2026-10-05), `scripts/retriage_notify.py` y archivos que no estaban versionados (`routes/avatar.py`, `scripts/sync_gmail.sh`, `sync_icloud.py`, `sync_icloud.sh`). Se **trajeron de producción al repositorio** (no al revés) para no reactivar el spam ni quitar el avatar.

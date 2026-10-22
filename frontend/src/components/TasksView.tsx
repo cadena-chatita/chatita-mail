@@ -257,6 +257,7 @@ export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
+                      data-testid="task-open-email"
                       onClick={() => selectEmail(t.email_id)}
                       className="text-xs text-slate-400 hover:text-slate-600"
                     >

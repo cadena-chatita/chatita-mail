@@ -55,7 +55,8 @@ async def main() -> None:
         f"Errores: {stats.get('errors', 0):,}\n\n"
         "Distribucion por categoria:\n" + "\n".join(dist_lines)
     )
-    ok = await TelegramNotifier().notify(msg)
+    # Telegram completion alert disabled 2026-10-05 to stop notification spam.
+    ok = True  # was: await TelegramNotifier().notify(msg)
     print(f"notified={ok}")
 
 

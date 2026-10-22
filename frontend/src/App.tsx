@@ -1,5 +1,5 @@
 // Chatita Mail v3.0 — application shell (3-pane: Sidebar | List | Reading)
-import { Search, Filter, Sparkles, Menu, ArrowLeft, PenSquare, Inbox, Settings as SettingsIcon, Layers } from "lucide-react";
+import { Search, Filter, Sparkles, Menu, ArrowLeft, PenSquare, Inbox, Settings as SettingsIcon, Layers, X, CheckSquare } from "lucide-react";
 import Sidebar from "./components/Sidebar";
 import EmailList from "./components/EmailList";
 import ReadingPane from "./components/ReadingPane";
@@ -22,6 +22,12 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const isWorkflow = folderKey === "tasks" || folderKey === "commitments";
+  useEffect(() => {
+    if (!(isWorkflow && selectedEmailId)) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && selectEmail(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isWorkflow, selectedEmailId, selectEmail]);
   const isDashboard = folderKey === "dashboard";
   const meaning = searchMode === "meaning";
 
@@ -111,7 +117,31 @@ export default function App() {
           ) : isDashboard ? (
             <Dashboard />
           ) : isWorkflow ? (
-            <TasksView mode={folderKey as "tasks" | "commitments"} />
+            <>
+              <TasksView mode={folderKey as "tasks" | "commitments"} />
+              {selectedEmailId && (
+                <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/40" onClick={() => selectEmail(null)}>
+                  <div
+                    className="flex h-full w-full min-w-0 flex-col bg-white shadow-2xl md:w-[780px]"
+                    onClick={(e) => e.stopPropagation()}
+                    role="dialog"
+                    aria-label="Correo de origen"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2">
+                      <span className="text-sm text-slate-500">Correo que originó el elemento</span>
+                      <button
+                        onClick={() => selectEmail(null)}
+                        aria-label="Cerrar correo"
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-sm text-slate-700 hover:bg-slate-100"
+                      >
+                        <X size={14} /> Cerrar
+                      </button>
+                    </div>
+                    <ReadingPane />
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <>
               <EmailList />
@@ -123,10 +153,11 @@ export default function App() {
         </div>
 
         {/* Mobile bottom navigation */}
-        <nav className="md:hidden shrink-0 border-t border-slate-200 bg-white grid grid-cols-4 pb-[env(safe-area-inset-bottom)]">
+        <nav className="md:hidden shrink-0 border-t border-slate-200 bg-white grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
           {[
             { k: "inbox", label: "Bandeja", I: Inbox },
             { k: "critical", label: "Críticos", I: Layers },
+            { k: "tasks", label: "Tareas", I: CheckSquare },
             { k: "settings", label: "Cuentas", I: SettingsIcon },
           ].map(({ k, label, I }) => (
             <button key={k} onClick={() => setFolder(k)} className={`flex flex-col items-center py-2 text-[11px] ${folderKey === k ? "text-indigo-600" : "text-slate-500"}`}>

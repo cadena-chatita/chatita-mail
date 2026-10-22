@@ -177,6 +177,10 @@ export default function ReadingPane() {
   const [tone] = useState("professional");  // single-draft fallback tone
   const [similar, setSimilar] = useState<EmailListItem[] | null>(null);
   const [compose, setCompose] = useState<ComposeState | null>(null);
+  const [confirmSend, setConfirmSend] = useState(false);
+  const composerRef = useRef<HTMLDivElement | null>(null);
+  const composeOpen = compose !== null;
+  const composeMode = compose?.mode;
   const [variants, setVariants] = useState<ReplyVariant[] | null>(null);
   const [styleMeta, setStyleMeta] = useState<{ applied: boolean; samples: number } | null>(null);
   const [replyLang, setReplyLang] = useState<string | null>(null);
@@ -367,6 +371,18 @@ export default function ReadingPane() {
     setCompose(mode === "forward" ? emptyForwardState(data) : emptyReplyState(data, mode));
   };
 
+  // The composer sits below the message: bring it into view and focus it whenever it opens or changes mode,
+  // otherwise on a long email "Responder" looks like it did nothing.
+  useEffect(() => {
+    setConfirmSend(false);
+    if (!composeOpen) return;
+    const t = window.setTimeout(() => {
+      composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      composerRef.current?.querySelector("textarea")?.focus({ preventScroll: true });
+    }, 30);
+    return () => window.clearTimeout(t);
+  }, [composeOpen, composeMode]);
+
   // Clear AI summary/composer/similar when the selected email changes.
   useEffect(() => {
     setSummary(null);
@@ -449,7 +465,7 @@ export default function ReadingPane() {
   const isQuarantined = data.status === "QUARANTINED" || data.status === "BLOCKED";
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-white">
+    <div data-testid="reading-pane" className="flex-1 flex flex-col overflow-hidden bg-white">
       {/* Toolbar */}
       <div className="px-5 py-2.5 border-b border-slate-100 flex items-center gap-1.5 flex-wrap">
         <ToolbarBtn icon={<Archive size={16} />} label="Archive" onClick={() => statusMut.mutate("ARCHIVED")} />
@@ -793,7 +809,7 @@ export default function ReadingPane() {
 
         {/* Composer: reply / reply-all / forward (sends via gmail.send) */}
         {compose && (
-          <div className="mt-6 rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+          <div ref={composerRef} data-testid="composer" className="mt-6 rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-indigo-600">
                 {compose.mode === "forward" ? (
@@ -964,18 +980,26 @@ export default function ReadingPane() {
               </div>
             )}
 
+            {confirmSend && (
+              <div role="alert" className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Se enviará como <b>{MAILBOX}</b> · Para: <b>{compose.to || "(sin destinatario)"}</b> · Asunto: <b>{compose.subject}</b>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => { setConfirmSend(false); sendMut.mutate(); }}
+                    className="rounded-md bg-indigo-600 px-3 py-1 text-white hover:bg-indigo-500"
+                  >
+                    Confirmar y enviar
+                  </button>
+                  <button onClick={() => setConfirmSend(false)} className="rounded-md border border-amber-300 bg-white px-3 py-1">
+                    Volver
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="mt-3 flex items-center gap-2 flex-wrap">
               <button
-                onClick={() => {
-                  const dest = compose.to || "(sin destinatario)";
-                  if (
-                    window.confirm(
-                      `Se enviará como ${MAILBOX}\n\nPara: ${dest}\nAsunto: ${compose.subject}\n\n¿Enviar ahora?`
-                    )
-                  ) {
-                    sendMut.mutate();
-                  }
-                }}
+                onClick={() => setConfirmSend(true)}
                 disabled={sendMut.isPending || !compose.to.trim()}
                 className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 text-white text-xs px-3 py-1.5 hover:bg-indigo-500 disabled:opacity-50"
               >

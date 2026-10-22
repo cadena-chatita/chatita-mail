@@ -170,14 +170,8 @@ class TriageService:
             return EmailStatus.ARCHIVED, actions
 
         # Critical / Important -> notify
-        if cls.category in (EmailCategory.CRITICAL, EmailCategory.IMPORTANT):
-            msg = self.notifier.format_alert(
-                cls.category.value, email.from_address, email.subject, email.snippet
-            )
-            sent = await self.notifier.notify(msg)
-            actions.append(f"telegram_alert:{'sent' if sent else 'skipped'}")
-            return EmailStatus.INBOX, actions
-
+        # Telegram CRITICAL alerts disabled 2026-10-05 to stop notification spam.
+        actions.append("telegram_alert:disabled")
         return EmailStatus.INBOX, actions
 
     # ── Persistence ─────────────────────────────────────────
