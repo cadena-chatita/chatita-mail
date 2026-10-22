@@ -37,7 +37,7 @@ test.describe("Tareas: ver correo", () => {
   test("abre el correo que originó la tarea y se puede cerrar para volver a las tareas", async ({ page }) => {
     await mockApi(page, { tasks: [task("t1", "e-long", "Pagar el pedido 123")] });
     await page.goto("./");
-    await page.getByRole("button", { name: /^Tasks/ }).first().click();
+    await page.getByRole("button", { name: /^Tareas/ }).first().click();
     await expect(page.getByText("Pagar el pedido 123")).toBeVisible();
     await page.getByTestId("task-open-email").first().click();
     const pane = page.getByTestId("reading-pane");
@@ -52,7 +52,7 @@ test.describe("Tareas: ver correo", () => {
   test("desde el correo abierto desde una tarea también se puede responder", async ({ page }) => {
     await mockApi(page, { tasks: [task("t1", "e-long", "Pagar el pedido 123")], paragraphs: 60 });
     await page.goto("./");
-    await page.getByRole("button", { name: /^Tasks/ }).first().click();
+    await page.getByRole("button", { name: /^Tareas/ }).first().click();
     await page.getByTestId("task-open-email").first().click();
     await page.getByRole("button", { name: "Responder", exact: true }).click();
     await expect(page.getByTestId("composer")).toBeInViewport({ ratio: 0.5 });
@@ -63,7 +63,7 @@ test.describe("Tareas: cancelar, deshacer y prioridad", () => {
   test("cancelar una tarea la quita de la lista y se puede deshacer", async ({ page }) => {
     const { calls } = await mockApi(page, { tasks: [task("t1", "e-long", "Pagar el pedido 123")] });
     await page.goto("./");
-    await page.getByRole("button", { name: /^Tasks/ }).first().click();
+    await page.getByRole("button", { name: /^Tareas/ }).first().click();
     await page.getByRole("button", { name: /cancelar/i }).first().click();
     await expect.poll(() => calls.find((c) => c.method === "PATCH" && c.path === "/tasks/t1")).toBeTruthy();
     expect((calls.find((c) => c.method === "PATCH")!.body as Record<string, string>).status).toBe("dismissed");
@@ -80,7 +80,7 @@ test.describe("Flujos base de la bandeja", () => {
     await expect(pane.getByText("Segundo correo").first()).toBeVisible();
     await expect(pane.getByText(/Ana Prueba/).first()).toBeVisible();
     await expect(pane.getByText(/Párrafo 1 del correo/)).toBeVisible();
-    await pane.getByRole("button", { name: "Archive" }).click();
+    await pane.getByRole("button", { name: "Archivar" }).click();
     await expect.poll(() => calls.find((c) => c.method === "PATCH" && c.path.endsWith("/status"))).toBeTruthy();
     expect((calls.find((c) => c.path.endsWith("/status"))!.body as Record<string, string>).status).toBe("ARCHIVED");
   });
@@ -109,7 +109,7 @@ test.describe("Móvil (390x800)", () => {
   test("ver correo desde una tarea ocupa la pantalla y se cierra", async ({ page }) => {
     await mockApi(page, { tasks: [task("t1", "e-long", "Pagar el pedido 123")] });
     await page.goto("./");
-    await page.locator("nav").getByRole("button", { name: "Tareas" }).click();   // mobile bottom navigation
+    await page.locator("nav.md\\:hidden").getByRole("button", { name: "Tareas" }).click();   // mobile bottom navigation
     await page.getByTestId("task-open-email").first().click();
     await expect(page.getByTestId("reading-pane")).toBeVisible();
     await page.getByRole("button", { name: /cerrar correo/i }).click();

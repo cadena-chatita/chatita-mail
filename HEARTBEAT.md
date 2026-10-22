@@ -616,3 +616,19 @@ Email entrante
 | `scripts/dedupe_tasks.py` | limpia lo existente sin borrar (vista previa por defecto, `--apply` para descartar; reversible) |
 
 **Producción (M5):** 3 archivos y el script desplegados con hashes idénticos, respaldo previo y servicio reiniciado; la limpieza descartó 1 duplicado de 6 pendientes (respaldo de la tabla `tasks` previo). Archivos sueltos `backend/inbox.py` y `backend/schemas.py` movidos a la carpeta de respaldos (sin referencias en el código). Pruebas: backend 45 en verde.
+
+## 2026-10-22 — AION Agent dentro de Chatita Mail, Tareas/Compromisos con su correo y auditoría de diseño
+
+**Reportado:** (1) en localhost, Responder no llevaba al editor; (2) "ver correo" no funcionaba en Tareas ni en Compromisos; (3) AION Agent "no se veía" en ningún lado; (4) contenido cortado o encimado.
+
+**Causa de (1) y (2) en localhost:** la pasarela local (`chatita-local`, puerto 8090) servía una copia **vieja** del cliente en `public/mail` (el mismo bundle que M5 tenía antes de las correcciones) y la dejó así. Se publicó el build actual y se añadió `scripts/deploy-mail-local.sh` en `chatita-local` para no repetirlo.
+
+| Qué | Detalle |
+|---|---|
+| Grupo **AION Agent** en la barra lateral | *Hoy: qué sigue* (tareas, compromisos, eventos y propuestas por urgencia, cada uno con su caso y su correo de origen), *Agenda*, *Casos* (línea de tiempo de WhatsApp, correo y agenda), *Buscar en todo* (texto completo) y *Órdenes a Chatita* |
+| `backend/routes/agent.py` | `/api/agent/{status,today,agenda,cases,search,email-context,command}`: lee la copia completa en memoria, la réplica ligera o la base local; los compromisos anteriores al 1 de octubre quedan fuera de *Hoy* (se siguen viendo en *Compromisos*) |
+| Tareas y Compromisos | caso (chip), correo de origen (remitente y asunto), **Ver correo** siempre visible, **Redactar respuesta** en las tareas de responder; el rojo es solo para lo vencido o a 72 horas, una fecha a 30 días ya no parece emergencia |
+| Responder | el editor se desplaza a la vista y se enfoca; desde *Hoy* o Tareas, **Redactar respuesta** abre el correo con el editor abierto |
+| Auditoría de diseño | 24 pruebas automáticas (3 tamaños × 8 vistas) detectan desbordes, texto cortado y controles encimados; hallazgos corregidos: barra lateral que escondía su lista de carpetas (ahora se desplaza completa), avisos que tapaban la barra inferior del teléfono, título de tarea aplastado a una palabra por renglón en teléfono, etiquetas mezcladas en inglés y español |
+
+**Pruebas:** backend 51, e2e 43 (11 con API simulada, 8 de AION Agent, 24 de diseño; más 2 contra el backend local real bajo `E2E_LIVE_BACKEND=1`). **Verificado con datos reales en localhost:** *Hoy* 19 elementos con 20 chips de caso, *Ver correo* abre el panel desde Hoy, Tareas (5 filas) y Compromisos (100 filas), Agenda 5 eventos, Casos 15, el editor de Responder queda a la vista y no hubo respuestas 5xx. **M5:** `agent.py` y el cliente desplegados con hashes idénticos, copia previa guardada.

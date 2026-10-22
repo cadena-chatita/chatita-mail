@@ -5,6 +5,7 @@ import EmailList from "./components/EmailList";
 import ReadingPane from "./components/ReadingPane";
 import TasksView from "./components/TasksView";
 import Dashboard from "./components/Dashboard";
+import AgentView, { type AgentMode } from "./components/AgentView";
 import ComposeModal from "./components/ComposeModal";
 import AccessibilityMenu from "./components/AccessibilityMenu";
 import { useEffect } from "react";
@@ -22,12 +23,14 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const isWorkflow = folderKey === "tasks" || folderKey === "commitments";
+  const isAgent = folderKey.startsWith("agent_");
+  const overlayOpen = (isWorkflow || isAgent) && !!selectedEmailId;
   useEffect(() => {
-    if (!(isWorkflow && selectedEmailId)) return;
+    if (!overlayOpen) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && selectEmail(null);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isWorkflow, selectedEmailId, selectEmail]);
+  }, [overlayOpen, selectEmail]);
   const isDashboard = folderKey === "dashboard";
   const meaning = searchMode === "meaning";
 
@@ -60,7 +63,7 @@ export default function App() {
               placeholder={
                 meaning
                   ? "Buscar por significado… (ej. 'facturas pendientes de pago')"
-                  : "Search sender, subject, content…"
+                  : "Buscar remitente, asunto, contenido…"
               }
               className={`w-full rounded-lg border bg-slate-50 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 ${
                 meaning
@@ -100,7 +103,7 @@ export default function App() {
             }`}
           >
             <Filter size={14} />
-            Unread
+            No leídos
           </button>
 
           <AccessibilityMenu />
@@ -116,9 +119,9 @@ export default function App() {
             <SettingsView />
           ) : isDashboard ? (
             <Dashboard />
-          ) : isWorkflow ? (
+          ) : isWorkflow || isAgent ? (
             <>
-              <TasksView mode={folderKey as "tasks" | "commitments"} />
+              {isWorkflow ? <TasksView mode={folderKey as "tasks" | "commitments"} /> : <AgentView mode={folderKey.replace("agent_", "") as AgentMode} />}
               {selectedEmailId && (
                 <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/40" onClick={() => selectEmail(null)}>
                   <div
@@ -127,7 +130,7 @@ export default function App() {
                     role="dialog"
                     aria-label="Correo de origen"
                   >
-                    <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2">
+                    <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
                       <span className="text-sm text-slate-500">Correo que originó el elemento</span>
                       <button
                         onClick={() => selectEmail(null)}
@@ -153,10 +156,11 @@ export default function App() {
         </div>
 
         {/* Mobile bottom navigation */}
-        <nav className="md:hidden shrink-0 border-t border-slate-200 bg-white grid grid-cols-5 pb-[env(safe-area-inset-bottom)]">
+        <nav className="md:hidden shrink-0 border-t border-slate-200 bg-white grid grid-cols-6 pb-[env(safe-area-inset-bottom)]">
           {[
             { k: "inbox", label: "Bandeja", I: Inbox },
             { k: "critical", label: "Críticos", I: Layers },
+            { k: "agent_today", label: "Hoy", I: Sparkles },
             { k: "tasks", label: "Tareas", I: CheckSquare },
             { k: "settings", label: "Cuentas", I: SettingsIcon },
           ].map(({ k, label, I }) => (

@@ -23,7 +23,24 @@ export function task(id: string, emailId: string, description: string, over: Rec
     created_at: "2026-10-21T10:00:00Z", completed_at: null, closed_via: null, ...over };
 }
 
-export interface MockOpts { paragraphs?: number; tasks?: ReturnType<typeof task>[] }
+export const CASE = { code: "HMG", title: "Hospital HMG" };
+const inHours = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
+
+export function todayPayload() {
+  const item = (kind: string, id: string, title: string, when: string | null, urgency: string, extra: Record<string, unknown> = {}) => ({
+    kind, id, title, when, urgency, email_id: kind === "event" ? null : "e-long", email_subject: "Propuesta con plazo (correo largo)", email_from: "Ana Prueba",
+    cases: [CASE], why: kind === "event" ? "Evento de Work con 2 invitado(s)" : "Tarea abierta con plazo · prioridad high", action: kind === "event" ? "agenda" : "open_email", ...extra });
+  return { generated_at: new Date().toISOString(), source: { kind: "full", age_s: 120 },
+    summary: { total: 4, overdue: 1, today: 1, soon: 1, week: 0, later: 0, open: 1, proposals: 3 },
+    sections: [
+      { key: "overdue", title: "Vencido", items: [item("task", "t1", "Pagar el pedido 123 con un texto muy largo que debe verse completo sin cortarse ni encimarse con los botones de la derecha", inHours(-30), "overdue")] },
+      { key: "today", title: "Hoy", items: [item("task", "t2", "Responder a Ana sobre los honorarios", inHours(5), "today", { action: "reply" })] },
+      { key: "soon", title: "Próximas 72 horas", items: [item("event", "ev1", "Junta del caso HMG", inHours(30), "soon")] },
+      { key: "open", title: "Abierto, sin plazo", items: [item("commitment", "c1", "Tú: Enviar el dictamen", null, "open")] },
+    ] };
+}
+
+export interface MockOpts { paragraphs?: number; tasks?: ReturnType<typeof task>[]; commitments?: { id: string; email_id: string; who: string; what: string; deadline: string | null; status: string }[] }
 
 /** Mocks every /api call. Returns the list of calls nobody handled, so tests can fail on surprises. */
 export async function mockApi(page: Page, opts: MockOpts = {}) {
@@ -45,7 +62,21 @@ export async function mockApi(page: Page, opts: MockOpts = {}) {
     if (method === "GET" && path === "/tasks/counts") return json({ pending: tasks.length, done: 0, dismissed: 0, overdue: 0, today: 0, week: tasks.length, no_date: 0 });
     if (method === "GET" && path === "/tasks") return json(tasks);
     if (method === "PATCH" && path.startsWith("/tasks/")) return json({ ...tasks.find((t) => path.endsWith(t.id)), ...(JSON.parse(req.postData() || "{}")) });
-    if (method === "GET" && path === "/commitments") return json([]);
+    if (method === "GET" && path === "/commitments") return json(opts.commitments ?? []);
+    if (method === "GET" && path === "/agent/today") return json(todayPayload());
+    if (method === "GET" && path === "/agent/status") return json({ available: true, source: { kind: "full", age_s: 60 }, has_search: true });
+    if (method === "GET" && path === "/agent/email-context") {
+      const ids = (new URL(req.url()).searchParams.get("ids") ?? "").split(",").filter(Boolean);
+      return json({ items: Object.fromEntries(ids.map((i) => [i, { subject: "Propuesta con plazo (correo largo)", from: "Ana Prueba", received_at: inHours(-5), cases: [CASE] }])) });
+    }
+    if (method === "GET" && path === "/agent/agenda") return json({ source: { kind: "full", age_s: 60 }, days: [{ date: new Date(Date.now() + 86400_000).toISOString().slice(0, 10), events: [
+      { id: "ev1", calendar: "Work", title: "Junta del caso HMG con un título bastante largo para comprobar que baja de renglón", start: inHours(30), end: inHours(31), all_day: false, location: "Sala de juntas, Torre Norte, piso 12, oficina 1204", attendees: 2, cases: [CASE] },
+      { id: "ev2", calendar: "Personal", title: "Cumpleaños", start: null, end: null, all_day: true, location: null, attendees: 0, cases: [] }] }] });
+    if (method === "GET" && path === "/agent/cases") return json({ source: { kind: "full", age_s: 60 }, cases: [{ ...CASE, kind: "matter", groups: 3, mail: 297, events: 121, proposals: 8 }, { code: "CORPORATIVO-CADENA", title: "Corporativo familia Cadena y empresas del grupo", kind: "project", groups: 5, mail: 312, events: 10, proposals: 0 }] });
+    if (method === "GET" && path === "/agent/cases/HMG") return json({ source: { kind: "full", age_s: 60 }, ...CASE, kind: "matter", keywords: ["HMG", "HSAI"], organizations: ["CDA Abogados"], groups: ["HMG - Penal", "HMG Operación"],
+      timeline: [{ channel: "mail", at: inHours(-48), summary: "Honorarios del dictamen" }, { channel: "whatsapp", at: inHours(-50), summary: "Nos reunimos mañana para revisar el dictamen pericial" }] });
+    if (method === "GET" && path === "/agent/search") return json({ source: { kind: "full", age_s: 60 }, results: [{ kind: "whatsapp", at: inHours(-100), where: "HMG - Penal", title: "", snippet: "Revisar el dictamen pericial antes del viernes" }] });
+    if (method === "POST" && path === "/agent/command") return json({ ok: true, reply: "Anotado: agregar Querétaro (caso HMG). Se aplicará en cuanto tu equipo esté en línea.", source: "replica" });
     if (method === "POST" && /\/reply$/.test(path)) return json({ ok: true, id: "sent-1" });
     unhandled.push(`${method} ${path}`);
     return json(method === "GET" ? [] : {});

@@ -106,6 +106,7 @@ async def version() -> dict:
 
 # ── Routers ─────────────────────────────────────────────────
 from backend.routes import accounts as accounts_routes  # noqa: E402
+from backend.routes import agent as agent_routes  # noqa: E402
 from backend.routes import auth as auth_routes  # noqa: E402
 from backend.routes import classify as classify_routes  # noqa: E402
 from backend.routes import avatar as avatar_routes  # noqa: E402
@@ -115,6 +116,7 @@ from backend.routes import security as security_routes  # noqa: E402
 from backend.routes import tasks as tasks_routes  # noqa: E402
 
 app.include_router(auth_routes.router)
+app.include_router(agent_routes.router)
 app.include_router(accounts_routes.router)
 app.include_router(inbox_routes.router)
 app.include_router(classify_routes.router)

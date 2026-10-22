@@ -21,7 +21,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <App />
-      <Toaster position="bottom-right" />
+      <Toaster position="top-right" containerStyle={{ top: "calc(max(env(safe-area-inset-top), 0px) + 64px)" }} toastOptions={{ style: { maxWidth: "min(92vw, 420px)" } }} />
     </QueryClientProvider>
   </React.StrictMode>
 );

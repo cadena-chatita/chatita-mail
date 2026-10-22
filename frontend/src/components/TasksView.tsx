@@ -17,8 +17,9 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { getTaskCounts, listCommitments, listTasks, updateTask } from "../api/client";
-import { deadlineLabel } from "../lib/format";
+import { getEmailContext, getTaskCounts, listCommitments, listTasks, updateTask } from "../api/client";
+import { TONE_CLASS, deadlineLabel, deadlineTone } from "../lib/format";
+import { CaseChips } from "./shared";
 import { useUI } from "../store";
 import type { Task } from "../types";
 
@@ -71,7 +72,7 @@ function inView(t: Task, view: View, now: number): boolean {
 
 export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
   const qc = useQueryClient();
-  const { selectEmail } = useUI();
+  const { openEmail } = useUI();
   const [view, setView] = useState<View>("all");
   const [limit, setLimit] = useState(PAGE);
   const [search, setSearch] = useState("");
@@ -94,6 +95,16 @@ export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
     queryFn: () => listCommitments("pending"),
     enabled: mode === "commitments",
   });
+
+  const emailIds = [...new Set([...(tasksQ.data ?? []).map((t) => t.email_id), ...(commitsQ.data ?? []).map((c) => c.email_id)])].sort();
+  const ctxQ = useQuery({
+    queryKey: ["email-context", emailIds.join(",")],
+    queryFn: () => getEmailContext(emailIds),
+    enabled: emailIds.length > 0,
+    staleTime: 300_000,
+    retry: 0,
+  });
+  const ctx = ctxQ.data ?? {};
 
   const taskMut = useMutation({
     mutationFn: (v: { id: string; status: "pending" | "done" | "dismissed" }) => updateTask(v.id, v.status),
@@ -210,7 +221,7 @@ export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
                 className="flex items-stretch gap-3 rounded-lg border border-slate-200 bg-white hover:shadow-sm transition overflow-hidden"
               >
                 <div className={`w-1.5 shrink-0 ${p.bar}`} aria-hidden />
-                <div className="flex items-start gap-3 p-3 flex-1 min-w-0">
+                <div className="flex flex-1 min-w-0 flex-wrap items-start gap-3 p-3 sm:flex-nowrap">
                   {closed ? (
                     <button
                       onClick={() => taskMut.mutate({ id: t.id, status: "pending" })}
@@ -224,8 +235,8 @@ export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
                       <Square size={18} />
                     </button>
                   )}
-                  <div className="min-w-0 flex-1">
-                    <div className={`text-sm ${closed ? "text-slate-400 line-through" : "text-slate-800"}`}>
+                  <div className="min-w-0 flex-1 basis-[12rem]">
+                    <div className={`text-sm break-words ${closed ? "text-slate-400 line-through" : "text-slate-800"}`}>
                       {t.description}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 mt-1 text-xs">
@@ -238,15 +249,12 @@ export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
                         </span>
                       )}
                       {t.deadline && (
-                        <span
-                          className={
-                            !closed && new Date(t.deadline).getTime() < now ? "text-rose-600 font-medium" : "text-slate-500"
-                          }
-                        >
-                          {!closed && new Date(t.deadline).getTime() < now ? "Vencida · " : ""}
+                        <span className={`rounded-full border px-2 py-0.5 ${closed ? TONE_CLASS.none : TONE_CLASS[deadlineTone(t.deadline, now)]}`}>
+                          {!closed && deadlineTone(t.deadline, now) === "overdue" ? "Vencida · " : ""}
                           {deadlineLabel(t.deadline)}
                         </span>
                       )}
+                      <CaseChips cases={ctx[t.email_id]?.cases} />
                       {closed && t.completed_at && (
                         <span className="text-emerald-700">
                           Completada {new Date(t.completed_at).toLocaleDateString()}
@@ -254,20 +262,34 @@ export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
                         </span>
                       )}
                     </div>
+                    {ctx[t.email_id] && (
+                      <div className="mt-1 text-xs text-slate-500 [overflow-wrap:anywhere]">
+                        Correo de origen: <b className="font-medium text-slate-600">{ctx[t.email_id].from}</b> · {ctx[t.email_id].subject}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex w-full shrink-0 flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
                     <button
                       data-testid="task-open-email"
-                      onClick={() => selectEmail(t.email_id)}
-                      className="text-xs text-slate-400 hover:text-slate-600"
+                      onClick={() => openEmail(t.email_id)}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                     >
-                      ver correo →
+                      Ver correo
                     </button>
+                    {!closed && t.task_type === "reply" && (
+                      <button
+                        onClick={() => openEmail(t.email_id, "reply")}
+                        className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-500"
+                      >
+                        Redactar respuesta
+                      </button>
+                    )}
                     {!closed && (
                       <button
                         onClick={() => dismiss(t)}
-                        className="text-slate-300 hover:text-rose-500"
+                        className="rounded p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                         title="Cancelar tarea (no se borra; puedes deshacer)"
+                        aria-label="Cancelar tarea"
                       >
                         <X size={16} />
                       </button>
@@ -296,16 +318,28 @@ export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
 
         {mode === "commitments" &&
           (commitsQ.data ?? []).map((c) => (
-            <div key={c.id} className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3">
-              <span className="mt-0.5 text-indigo-500">🤝</span>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm text-slate-800">
-                  <b>{c.who}</b>: {c.what}
+            <div key={c.id} className="flex flex-wrap items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:flex-nowrap">
+              <Handshake size={18} className="mt-0.5 shrink-0 text-indigo-500" aria-hidden />
+              <div className="min-w-0 flex-1 basis-[12rem]">
+                <div className="break-words text-sm text-slate-800">
+                  <b>{c.who === "me" ? "Tú" : c.who === "sender" ? "Remitente" : c.who}</b>: {c.what}
                 </div>
-                {c.deadline && <div className="text-xs text-rose-500 mt-1">{deadlineLabel(c.deadline)}</div>}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                  {c.deadline && <span className={`rounded-full border px-2 py-0.5 ${TONE_CLASS[deadlineTone(c.deadline, now)]}`}>{deadlineTone(c.deadline, now) === "overdue" ? "Vencido · " : ""}{deadlineLabel(c.deadline)}</span>}
+                  <CaseChips cases={ctx[c.email_id]?.cases} />
+                </div>
+                {ctx[c.email_id] && (
+                  <div className="mt-1 text-xs text-slate-500 [overflow-wrap:anywhere]">
+                    Correo de origen: <b className="font-medium text-slate-600">{ctx[c.email_id].from}</b> · {ctx[c.email_id].subject}
+                  </div>
+                )}
               </div>
-              <button onClick={() => selectEmail(c.email_id)} className="text-xs text-slate-400 hover:text-slate-600">
-                ver correo →
+              <button
+                data-testid="commitment-open-email"
+                onClick={() => openEmail(c.email_id)}
+                className="shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Ver correo
               </button>
             </div>
           ))}

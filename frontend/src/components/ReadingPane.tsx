@@ -121,7 +121,7 @@ DOMPurify.addHook("afterSanitizeAttributes", (node) => {
 });
 
 export default function ReadingPane() {
-  const { selectedEmailId, selectEmail } = useUI();
+  const { selectedEmailId, selectEmail, pendingCompose, clearPendingCompose } = useUI();
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -371,6 +371,14 @@ export default function ReadingPane() {
     setCompose(mode === "forward" ? emptyForwardState(data) : emptyReplyState(data, mode));
   };
 
+  // "Redactar respuesta" from the AION Agent / Tasks views opens the email with the composer already open.
+  useEffect(() => {
+    if (!pendingCompose || !data || data.id !== selectedEmailId) return;
+    setCompose(pendingCompose === "forward" ? emptyForwardState(data) : emptyReplyState(data, pendingCompose));
+    clearPendingCompose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCompose, data?.id, selectedEmailId]);
+
   // The composer sits below the message: bring it into view and focus it whenever it opens or changes mode,
   // otherwise on a long email "Responder" looks like it did nothing.
   useEffect(() => {
@@ -451,14 +459,14 @@ export default function ReadingPane() {
       <div className="flex-1 grid place-items-center text-slate-400">
         <div className="text-center">
           <MailOpen className="mx-auto mb-2" size={32} />
-          <div>Select an email to read</div>
+          <div>Elige un correo para leerlo</div>
         </div>
       </div>
     );
   }
 
   if (isLoading || !data) {
-    return <div className="flex-1 p-8 text-slate-400">Loading…</div>;
+    return <div className="flex-1 p-8 text-slate-400">Cargando…</div>;
   }
 
   const name = data.from_name || data.from_address;
@@ -468,25 +476,25 @@ export default function ReadingPane() {
     <div data-testid="reading-pane" className="flex-1 flex flex-col overflow-hidden bg-white">
       {/* Toolbar */}
       <div className="px-5 py-2.5 border-b border-slate-100 flex items-center gap-1.5 flex-wrap">
-        <ToolbarBtn icon={<Archive size={16} />} label="Archive" onClick={() => statusMut.mutate("ARCHIVED")} />
-        <ToolbarBtn icon={<Trash2 size={16} />} label="Delete" onClick={() => statusMut.mutate("DELETED")} />
+        <ToolbarBtn icon={<Archive size={16} />} label="Archivar" onClick={() => statusMut.mutate("ARCHIVED")} />
+        <ToolbarBtn icon={<Trash2 size={16} />} label="Eliminar" onClick={() => statusMut.mutate("DELETED")} />
         {data.status === "DELETED" && (
           <ToolbarBtn icon={<Undo2 size={16} />} label="Restaurar" onClick={() => statusMut.mutate("INBOX")} />
         )}
         <ToolbarBtn
           icon={data.is_read ? <MailOpen size={16} /> : <MailOpen size={16} />}
-          label={data.is_read ? "Mark unread" : "Mark read"}
+          label={data.is_read ? "Marcar no leído" : "Marcar leído"}
           onClick={() => readMut.mutate(!data.is_read)}
         />
         {data.classification?.unsubscribe_url && (
-          <ToolbarBtn icon={<Ban size={16} />} label="Unsubscribe" onClick={() => unsubMut.mutate()} />
+          <ToolbarBtn icon={<Ban size={16} />} label="Darse de baja" onClick={() => unsubMut.mutate()} />
         )}
         {isQuarantined && (
-          <ToolbarBtn icon={<ShieldCheck size={16} />} label="Release" onClick={() => releaseMut.mutate()} />
+          <ToolbarBtn icon={<ShieldCheck size={16} />} label="Liberar" onClick={() => releaseMut.mutate()} />
         )}
         <ToolbarBtn
           icon={<Sparkles size={16} />}
-          label={extractMut.isPending ? "Extracting…" : "Extract tasks"}
+          label={extractMut.isPending ? "Extrayendo…" : "Extraer tareas"}
           onClick={() => extractMut.mutate()}
           disabled={extractMut.isPending}
         />
@@ -497,7 +505,7 @@ export default function ReadingPane() {
         <div className="mx-1 h-5 w-px bg-slate-200" />
         <ToolbarBtn
           icon={summarizeMut.isPending ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
-          label={summarizeMut.isPending ? "Summarizing…" : "Summarize"}
+          label={summarizeMut.isPending ? "Resumiendo…" : "Resumir"}
           onClick={() => summarizeMut.mutate()}
           disabled={summarizeMut.isPending}
         />

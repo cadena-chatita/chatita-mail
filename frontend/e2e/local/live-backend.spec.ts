@@ -11,7 +11,7 @@ test.describe("Backend local real", () => {
     page.on("response", (r) => { if (r.url().includes("/api/") && r.status() >= 500 && r.status() !== 503) bad.push(`${r.status()} ${new URL(r.url()).pathname}`); });
     await page.goto("./");
     await expect(page.getByTestId("email-row").first()).toBeVisible();
-    await page.getByRole("button", { name: /^Tasks/ }).first().click();
+    await page.getByRole("button", { name: /^Tareas/ }).first().click();
     await page.waitForTimeout(800);
     expect(bad, `respuestas 5xx inesperadas (503 = Gmail no configurado, esperado en local): ${bad.join(", ")}`).toEqual([]);
   });

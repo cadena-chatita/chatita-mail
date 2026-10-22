@@ -1,5 +1,6 @@
 // Chatita Mail v3.0 — presentation helpers
 import { formatDistanceToNow, format, isToday, isYesterday } from "date-fns";
+import { es } from "date-fns/locale";
 import type { EmailCategory, RiskLevel } from "../types";
 
 export function initials(name: string | null, email: string): string {
@@ -30,8 +31,27 @@ export function deadlineLabel(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return `${format(d, "MMM d, h:mm a")} (${formatDistanceToNow(d, { addSuffix: true })})`;
+  return `${format(d, "d MMM, h:mm a", { locale: es })} (${formatDistanceToNow(d, { addSuffix: true, locale: es })})`;
 }
+
+export type Tone = "overdue" | "soon" | "week" | "later" | "none";
+
+// Red is for what is already late or due within 72 h; a date a month away must not look like an emergency.
+export function deadlineTone(iso: string | null, now = Date.now()): Tone {
+  if (!iso) return "none";
+  const ms = new Date(iso).getTime();
+  if (Number.isNaN(ms)) return "none";
+  const h = (ms - now) / 3_600_000;
+  return h < 0 ? "overdue" : h <= 72 ? "soon" : h <= 168 ? "week" : "later";
+}
+
+export const TONE_CLASS: Record<Tone, string> = {
+  overdue: "bg-rose-50 text-rose-700 border-rose-200",
+  soon: "bg-amber-50 text-amber-800 border-amber-200",
+  week: "bg-sky-50 text-sky-700 border-sky-200",
+  later: "bg-slate-50 text-slate-600 border-slate-200",
+  none: "bg-slate-50 text-slate-500 border-slate-200",
+};
 
 // Deterministic avatar color from a string.
 const AVATAR_COLORS = [

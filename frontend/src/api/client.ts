@@ -454,4 +454,32 @@ export const connectPassword = async (
   b: { password: string; username?: string; imap_host?: string; imap_port?: number; smtp_host?: string; smtp_port?: number }
 ): Promise<ConnectResult> => (await api.post<ConnectResult>(`/accounts/${id}/connect-password`, b)).data;
 
+// ── AION Agent (what's next, agenda, cases, search, orders) ──
+export interface CaseChip { code: string; title: string | null }
+export interface AgentSource { kind: "full" | "light" | "local" | "none"; age_s: number | null }
+export interface TodayItem {
+  kind: "task" | "commitment" | "event"; id: string; title: string; when: string | null;
+  urgency: "overdue" | "today" | "soon" | "week" | "later" | "open"; email_id: string | null;
+  email_subject: string | null; email_from: string | null; cases: CaseChip[]; why: string; action: string;
+}
+export interface TodayOut {
+  generated_at: string; source: AgentSource; summary: Record<string, number>;
+  sections: { key: string; title: string; items: TodayItem[] }[];
+}
+export interface AgendaEvent { id: string; calendar: string | null; title: string; start: string | null; end: string | null; all_day: boolean; location: string | null; attendees: number; cases: CaseChip[] }
+export interface CaseRow { code: string; title: string | null; kind: string | null; groups: number; mail: number; events: number; proposals: number }
+export interface CaseDetail { code: string; title: string | null; kind: string | null; keywords: string[]; organizations: string[]; groups: string[]; timeline: { channel: string; at: string | null; summary: string | null }[]; source: AgentSource }
+export interface SearchHit { kind: string; at: string | null; where: string | null; title: string; snippet: string }
+export interface EmailContext { subject: string | null; from: string | null; received_at: string | null; cases: CaseChip[] }
+
+export const getAgentStatus = async () => (await api.get<{ available: boolean; source: AgentSource; counts?: Record<string, number>; has_search?: boolean; message?: string }>("/agent/status")).data;
+export const getAgentToday = async () => (await api.get<TodayOut>("/agent/today")).data;
+export const getAgentAgenda = async (days = 14) => (await api.get<{ source: AgentSource; days: { date: string; events: AgendaEvent[] }[] }>("/agent/agenda", { params: { days } })).data;
+export const getAgentCases = async () => (await api.get<{ source: AgentSource; cases: CaseRow[] }>("/agent/cases")).data;
+export const getAgentCase = async (code: string) => (await api.get<CaseDetail>(`/agent/cases/${encodeURIComponent(code)}`)).data;
+export const agentSearch = async (q: string) => (await api.get<{ source: AgentSource; results: SearchHit[]; message?: string }>("/agent/search", { params: { q } })).data;
+export const agentCommand = async (text: string) => (await api.post<{ reply: string; source?: string }>("/agent/command", { text, session: "mail-ui" })).data;
+export const getEmailContext = async (ids: string[]) =>
+  ids.length ? (await api.get<{ items: Record<string, EmailContext> }>("/agent/email-context", { params: { ids: ids.join(",") } })).data.items : {};
+
 export default api;

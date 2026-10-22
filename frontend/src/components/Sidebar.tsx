@@ -35,9 +35,10 @@ function countFor(folder: FolderDef, stats?: InboxStats): number | null {
 
 const GROUPS: { id: FolderDef["group"]; label: string | null }[] = [
   { id: "primary", label: null },
-  { id: "workflow", label: "Workflow" },
-  { id: "categories", label: "Priority" },
-  { id: "system", label: "Filtered" },
+  { id: "agent", label: "AION Agent" },
+  { id: "workflow", label: "Flujo de trabajo" },
+  { id: "categories", label: "Prioridad" },
+  { id: "system", label: "Filtrados" },
 ];
 
 export default function Sidebar() {
@@ -54,11 +55,11 @@ export default function Sidebar() {
     mutationFn: () => syncGmail(30, true),
     onSuccess: (res) => {
       toast.success(
-        `Synced ${res.pulled ?? res.upserted ?? 0} · triaged ${res.triaged ?? 0}`
+        `Sincronizado: ${res.pulled ?? res.upserted ?? 0} nuevos · ${res.triaged ?? 0} clasificados`
       );
       qc.invalidateQueries();
     },
-    onError: (e: unknown) => toast.error(`Sync failed: ${(e as Error).message}`),
+    onError: (e: unknown) => toast.error(`Falló la sincronización: ${(e as Error).message}`),
   });
 
   // Auto-sync on open: fire an incremental sync once when the app mounts
@@ -76,12 +77,12 @@ export default function Sidebar() {
     <>
     {drawerOpen && <div className="fixed inset-0 z-30 bg-slate-900/40 md:hidden" onClick={() => setDrawer(false)} />}
     <aside
-      className={`fixed md:static inset-y-0 left-0 z-40 w-72 md:w-60 shrink-0 border-r border-slate-200 bg-slate-50 flex flex-col pt-[env(safe-area-inset-top)] transition-transform md:translate-x-0 ${
+      className={`fixed md:static inset-y-0 left-0 z-40 w-72 md:w-60 shrink-0 overflow-y-auto overscroll-contain border-r border-slate-200 bg-slate-50 flex flex-col pt-[env(safe-area-inset-top)] transition-transform md:translate-x-0 ${
         drawerOpen ? "translate-x-0" : "-translate-x-full"
       }`}
     >
       {/* Brand */}
-      <div className="px-4 py-4 flex items-center gap-2">
+      <div className="px-4 py-3 flex items-center gap-2">
         <div className="h-8 w-8 rounded-lg bg-slate-900 text-white grid place-items-center text-sm">
           📬
         </div>
@@ -106,12 +107,12 @@ export default function Sidebar() {
           className="w-full flex items-center justify-center gap-2 rounded-lg bg-slate-900 text-white text-sm font-medium py-2 hover:bg-slate-700 transition disabled:opacity-60"
         >
           <LucideIcon name={sync.isPending ? "Loader" : "RefreshCw"} className={sync.isPending ? "animate-spin" : ""} />
-          {sync.isPending ? "Syncing…" : "Sincronizar"}
+          {sync.isPending ? "Sincronizando…" : "Sincronizar"}
         </button>
       </div>
 
       {/* Folders */}
-      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
+      <nav className="flex-1 px-2 py-3 space-y-3">
         <AccountSwitcher />
         {GROUPS.map((g) => {
           const items = FOLDERS.filter((f) => f.group === g.id);
@@ -167,13 +168,13 @@ export default function Sidebar() {
       {/* Workload footer */}
       <div className="border-t border-slate-200 p-3 text-xs text-slate-500 space-y-1">
         <div className="flex items-center justify-between">
-          <span>Time saved</span>
+          <span>Tiempo ahorrado</span>
           <span className="font-semibold text-emerald-600">
             {stats ? humanMinutes(stats.time_saved_minutes) : "—"}
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span>Total emails</span>
+          <span>Total de correos</span>
           <span className="font-medium text-slate-600">{stats?.total ?? "—"}</span>
         </div>
       </div>
