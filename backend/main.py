@@ -23,9 +23,19 @@ logger = logging.getLogger("chatita_mail")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s v%s (%s)", settings.app_name, settings.app_version, settings.environment)
+    from backend.services.schema_sync import check_and_maybe_fix
+    app.state.schema_missing = await check_and_maybe_fix(engine, auto_apply=settings.environment == "development")
     yield
     await engine.dispose()
     logger.info("Shutdown complete")
+
+
+def _service_account_missing(request, exc: FileNotFoundError):
+    """No Google service-account file in this environment (typical on a developer machine): say so instead of a bare 500."""
+    from fastapi.responses import JSONResponse
+    if "service-account" in str(exc).lower() or "service_account" in str(exc).lower():
+        return JSONResponse(status_code=503, content={"detail": "Gmail no está configurado en este entorno (falta el archivo de la cuenta de servicio de Google)."})
+    raise exc
 
 
 app = FastAPI(
@@ -34,6 +44,8 @@ app = FastAPI(
     description="AI-Powered Email Management System with AION Brain Integration",
     lifespan=lifespan,
 )
+
+app.add_exception_handler(FileNotFoundError, _service_account_missing)
 
 # CORS: allow Chatita frontend (local + prod)
 app.add_middleware(
@@ -77,12 +89,13 @@ async def health() -> HealthOut:
     redis_ok = await _check_redis()
     aion_status = await aion.health()
     return HealthOut(
-        status="ok" if db_ok else "degraded",
+        status="ok" if (db_ok and not getattr(app.state, "schema_missing", [])) else "degraded",
         version=settings.app_version,
         environment=settings.environment,
         database=db_ok,
         redis=redis_ok,
         aion_brain=aion_status,
+        schema_missing=getattr(app.state, "schema_missing", []),
     )
 
 

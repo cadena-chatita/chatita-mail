@@ -296,3 +296,16 @@ MIT License - see [LICENSE](LICENSE) file for details
 ---
 
 **Built with ❤️ by Manuel Cadena**
+
+## Desarrollo local
+
+```bash
+python3 -m venv venv && venv/bin/pip install -r backend/requirements.txt
+venv/bin/python -m scripts.setup_db                 # crea la base y las tablas (idempotente)
+venv/bin/python -m uvicorn backend.main:app --port 8000
+cd frontend && npm install && npm run dev            # http://localhost:5173/mail/ (proxy /api -> :8000)
+```
+
+- **El esquema se repara solo en desarrollo.** Al arrancar, el backend compara los modelos con la base y agrega las columnas y valores de enumeración que falten (nunca borra nada). En producción solo avisa en el registro y en `GET /health` (`schema_missing`).
+- **Gmail no funciona en local** sin el archivo de la cuenta de servicio de Google: los envíos y la sincronización responden 503 con un mensaje claro. La base local contiene datos de demostración.
+- Pruebas: `venv/bin/python -m pytest backend/tests` y, en `frontend/`, `npm run test:e2e:local` (API simulada, sin sesión). Con el backend local en marcha: `E2E_LIVE_BACKEND=1 npx playwright test -c playwright.local.config.ts live-backend` (el correo saliente se intercepta en el navegador: nunca se envía).

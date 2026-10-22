@@ -590,3 +590,16 @@ Email entrante
 **Pruebas:** nueva suite `frontend/e2e/local/` (11 pruebas, `npm run test:e2e:local`) con la API simulada con datos ficticios (el repositorio es público), sin sesión. Antes del arreglo fallaban 6 de las 7 pruebas escritas para estos flujos; después pasan las 11. Backend: 33 pruebas en verde.
 
 **Estado del despliegue (M5):** el cliente nuevo está servido (bundle verificado por hash y por cadenas). **El código del servidor tenía diferencias con este repositorio** (producción iba por delante): `main.py` (ruta de avatar), `services/triage.py` (alertas de Telegram desactivadas por spam el 2026-10-05), `scripts/retriage_notify.py` y archivos que no estaban versionados (`routes/avatar.py`, `scripts/sync_gmail.sh`, `sync_icloud.py`, `sync_icloud.sh`). Se **trajeron de producción al repositorio** (no al revés) para no reactivar el spam ni quitar el avatar.
+
+## 2026-10-22 — Versión local rota: base de datos atrasada respecto al código
+
+**Síntoma:** en `localhost` no se podía responder, reenviar ni usar los botones. **Causa medida:** la base local estaba atrasada: faltaban columnas (`email_accounts.auth_type`, `status`, `tasks.completed_at`...) y valores de enumeración (`emailstatus.SENT`, `accountprovider.MICROSOFT`), y las filas antiguas tenían `NULL` donde el modelo espera un valor (`is_default`). Resultado: `GET /api/accounts` devolvía 500 y, sin cuentas, la interfaz quedaba inerte.
+
+| Cambio | Detalle |
+|---|---|
+| `backend/services/schema_sync.py` | compara modelos y base; en desarrollo agrega solo lo que falta (columnas, valores de enumeración, relleno de `NULL` con el valor por defecto del modelo); en producción solo avisa |
+| `GET /health` | nuevo campo `schema_missing` (vacío = esquema al día) y estado `degraded` si hay deriva |
+| 503 claro | si falta el archivo de la cuenta de servicio de Google, la API responde 503 con un mensaje en lugar de un 500 |
+| Pruebas | backend 37 en verde; e2e: 11 con API simulada y 2 contra el backend local real (sin enviar nada) |
+
+**Verificado en producción (M5):** esquema al día (`schema_missing: []`); `main.py`, `schemas.py` y `schema_sync.py` desplegados con hashes idénticos al repositorio y servicio reiniciado con respaldo previo. El servicio escucha en el puerto 8701 (no en el 8000).

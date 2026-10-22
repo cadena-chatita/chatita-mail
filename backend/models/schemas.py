@@ -153,3 +153,4 @@ class HealthOut(BaseModel):
     database: bool
     redis: bool
     aion_brain: dict
+    schema_missing: list[str] = []   # 'table.column' the code expects but the database lacks (should be empty)
