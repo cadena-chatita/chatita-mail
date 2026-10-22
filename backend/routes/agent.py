@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.config import settings
 from backend.models.db import get_session
 from backend.models.entities import Commitment, Email, EmailAccount, Task
+from backend.services.agent_colors import case_color
 from backend.services.workflow.task_value import aware, parse_cutoff
 
 router = APIRouter(prefix="/api/agent", tags=["aion-agent"])
@@ -108,7 +109,7 @@ def case_chips(con: sqlite3.Connection | None, rows: list[tuple[str, str, str]])
         cs = con.execute("""SELECT DISTINCT cs.code, cs.title FROM mail_observations o JOIN case_mail cm ON cm.message_id = o.atom_id JOIN cases cs ON cs.id = cm.case_id
                             WHERE o.provider_message_id = ? AND o.account = ?""", (pmid, acct)).fetchall()
         if cs:
-            out[eid] = [{"code": c, "title": t} for c, t in cs]
+            out[eid] = [{"code": c, "title": t, "color": case_color(c)} for c, t in cs]
     return out
 
 
@@ -116,9 +117,11 @@ async def _email_rows(session: AsyncSession, ids: list[str]) -> dict[str, dict]:
     if not ids:
         return {}
     rows = (await session.execute(
-        select(Email.id, Email.subject, Email.from_name, Email.from_address, Email.received_at, Email.provider_message_id, EmailAccount.email_address)
+        select(Email.id, Email.subject, Email.from_name, Email.from_address, Email.received_at, Email.provider_message_id, EmailAccount.email_address, Email.snippet, Email.body_text)
         .join(EmailAccount, EmailAccount.id == Email.account_id).where(Email.id.in_(ids)))).all()
-    return {r[0]: {"subject": r[1], "from": r[2] or r[3], "received_at": r[4].isoformat() if r[4] else None, "pmid": r[5], "account": r[6]} for r in rows}
+    def excerpt(snippet, body):
+        return " ".join(((snippet or body or "")).split())[:240]
+    return {r[0]: {"subject": r[1], "from": r[2] or r[3], "from_address": r[3], "received_at": r[4].isoformat() if r[4] else None, "pmid": r[5], "account": r[6], "excerpt": excerpt(r[7], r[8])} for r in rows}
 
 
 # ── endpoints ───────────────────────────────────────────────
@@ -153,7 +156,7 @@ async def email_context(ids: str = Query(..., description="comma separated Chati
     finally:
         if con:
             con.close()
-    return EmailContextOut(items={i: {"subject": v["subject"], "from": v["from"], "received_at": v["received_at"], "cases": chips.get(i, [])} for i, v in info.items()})
+    return EmailContextOut(items={i: {"subject": v["subject"], "from": v["from"], "from_address": v["from_address"], "received_at": v["received_at"], "excerpt": v["excerpt"], "cases": chips.get(i, [])} for i, v in info.items()})
 
 
 @router.get("/today")
@@ -170,17 +173,35 @@ async def today(session: AsyncSession = Depends(get_session)) -> dict:
     info = await _email_rows(session, ids)
     chips = case_chips(con, [(i, v["account"], v["pmid"]) for i, v in info.items()]) if con else {}
 
-    def base(kind: str, ident: str, title: str, when: datetime | None, email_id: str | None, why: str, action: str) -> dict:
+    latest_cache: dict[str, dict | None] = {}
+
+    def latest(code: str) -> dict | None:
+        if con is None:
+            return None
+        if code not in latest_cache:
+            r = con.execute("SELECT v.channel, v.t, v.summary FROM v_case_timeline v JOIN cases c ON c.id = v.case_id WHERE c.code = ? ORDER BY v.t DESC LIMIT 1", (code,)).fetchone()
+            latest_cache[code] = {"channel": r[0], "at": _iso(r[1]), "summary": (r[2] or "")[:140]} if r else None
+        return latest_cache[code]
+
+    def base(kind: str, ident: str, title: str, when: datetime | None, email_id: str | None, why: str, action: str, suggestion: str = "") -> dict:
         ctx = info.get(email_id or "", {})
         when = aware(when) if when else None
+        cs = chips.get(email_id or "", [])
         return {"kind": kind, "id": ident, "title": title, "when": when.isoformat() if when else None, "urgency": _urgency(when, now), "email_id": email_id,
-                "email_subject": ctx.get("subject"), "email_from": ctx.get("from"), "cases": chips.get(email_id or "", []), "why": why, "action": action}
+                "email_subject": ctx.get("subject"), "email_from": ctx.get("from"), "email_received_at": ctx.get("received_at"), "email_excerpt": ctx.get("excerpt"),
+                "cases": cs, "case_latest": latest(cs[0]["code"]) if cs else None, "why": why, "action": action, "suggestion": suggestion}
+
+    def suggest_task(t, who: str) -> str:
+        return {"reply": f"Responder a {who}", "payment": "Revisar el monto y registrar el pago", "document": "Revisar y firmar o entregar el documento", "calendar": "Agendar en tu calendario"}.get(t.task_type or "", "Decidir: hacerlo, delegarlo o cancelarlo")
 
     for t in t_rows:
         items.append(base("task", t.id, t.description, t.deadline, t.email_id,
-                          "Tarea abierta" + (" con plazo" if t.deadline else " sin plazo") + f" · prioridad {t.priority or 'media'}", "reply" if t.task_type == "reply" else "open_email"))
+                          "Tarea abierta" + (" con plazo" if t.deadline else " sin plazo") + f" · prioridad {t.priority or 'media'}", "reply" if t.task_type == "reply" else "open_email",
+                          suggest_task(t, (info.get(t.email_id) or {}).get("from") or "el remitente")))
     for c in c_rows:
-        items.append(base("commitment", c.id, f"{_WHO.get(c.who, c.who)}: {c.what}", c.deadline, c.email_id, "Compromiso detectado en el correo", "open_email"))
+        who = (info.get(c.email_id) or {}).get("from") or "el remitente"
+        items.append(base("commitment", c.id, f"{_WHO.get(c.who, c.who)}: {c.what}", c.deadline, c.email_id, "Compromiso detectado en el correo", "open_email",
+                          "Cumplirlo o acordar otra fecha con " + who if c.who == "me" else f"Dar seguimiento a {who} si no llega"))
     summary = {"proposals": 0}
     if con is not None:
         try:
@@ -189,8 +210,11 @@ async def today(session: AsyncSession = Depends(get_session)) -> dict:
                                                           FROM calendar_events e WHERE e.all_day=0 AND e.start_at BETWEEN ? AND ? ORDER BY e.start_at LIMIT 12""", (lim_a, lim_b)):
                 cs = con.execute("SELECT cs.code, cs.title FROM case_events ce JOIN cases cs ON cs.id=ce.case_id WHERE ce.event_id=?", (eid,)).fetchall()
                 when = datetime.fromtimestamp(start, timezone.utc)
+                chips_ev = [{"code": c, "title": t, "color": case_color(c)} for c, t in cs]
                 items.append({"kind": "event", "id": eid, "title": title or "(sin título)", "when": when.isoformat(), "urgency": _urgency(when, now), "email_id": None, "email_subject": None,
-                              "email_from": None, "cases": [{"code": c, "title": t} for c, t in cs], "why": f"Evento de {cal}" + (f" con {n} invitado(s)" if n else ""), "action": "agenda"})
+                              "email_from": None, "email_received_at": None, "email_excerpt": None, "cases": chips_ev, "case_latest": latest(chips_ev[0]["code"]) if chips_ev else None,
+                              "why": f"Evento de {cal}" + (f" con {n} invitado(s)" if n else ""), "action": "agenda",
+                              "suggestion": f"Preparar: revisa lo último del caso {chips_ev[0]['code']}" if chips_ev else "Revisar la agenda del día"})
             summary["proposals"] = con.execute("SELECT count(*) FROM case_links WHERE status='proposed'").fetchone()[0]
         finally:
             con.close()
@@ -233,13 +257,16 @@ def cases() -> dict:
             (SELECT count(*) FROM case_links WHERE case_id=cs.id AND ref_kind='group' AND status IN ('confirmed','provisional')),
             (SELECT count(*) FROM case_mail WHERE case_id=cs.id), (SELECT count(*) FROM case_events WHERE case_id=cs.id),
             (SELECT count(*) FROM case_links WHERE case_id=cs.id AND status='proposed') FROM cases cs ORDER BY cs.id""").fetchall()
-        return {"source": src, "cases": [{"code": r[0], "title": r[1], "kind": r[2], "groups": r[3], "mail": r[4], "events": r[5], "proposals": r[6]} for r in rows]}
+        last = dict(con.execute("SELECT case_id, max(t) FROM v_case_timeline GROUP BY case_id").fetchall())
+        ids = dict(con.execute("SELECT code, id FROM cases").fetchall())
+        return {"source": src, "cases": [{"code": r[0], "title": r[1], "kind": r[2], "groups": r[3], "mail": r[4], "events": r[5], "proposals": r[6], "color": case_color(r[0]),
+                                          "last_activity": _iso(last.get(ids.get(r[0])))} for r in rows]}
     finally:
         con.close()
 
 
 @router.get("/cases/{code}")
-def case_detail(code: str, limit: int = Query(40, le=200)) -> dict:
+async def case_detail(code: str, limit: int = Query(40, le=200), session: AsyncSession = Depends(get_session)) -> dict:
     con, src = open_agent_db()
     if con is None:
         raise HTTPException(503, "AION Agent no tiene datos en este entorno")
@@ -252,9 +279,26 @@ def case_detail(code: str, limit: int = Query(40, le=200)) -> dict:
         tl = [{"channel": ch, "at": _iso(t), "summary": s} for ch, t, s in con.execute("SELECT channel, t, summary FROM v_case_timeline WHERE case_id=? ORDER BY t DESC LIMIT ?", (row[0], limit))]
         orgs = [r[0] for r in con.execute("SELECT o.name FROM case_links cl JOIN orgs o ON o.id=cast(cl.ref_id AS integer) WHERE cl.case_id=? AND cl.ref_kind='org' AND cl.status IN ('confirmed','provisional') ORDER BY o.name LIMIT 30", (row[0],))]
         groups = [r[0] for r in con.execute("SELECT coalesce(ch.name, cl.ref_id) FROM case_links cl LEFT JOIN chats ch ON ch.jid=cl.ref_id WHERE cl.case_id=? AND cl.ref_kind='group' AND cl.status IN ('confirmed','provisional') ORDER BY 1 LIMIT 40", (row[0],))]
-        return {"source": src, "code": row[1], "title": row[2], "kind": row[3], "keywords": kws, "organizations": orgs, "groups": groups, "timeline": tl}
+        now_ts = time.time()
+        upcoming = [{"title": t, "at": _iso(a), "calendar": c} for t, a, c in con.execute("""SELECT e.title, e.start_at, e.calendar FROM case_events ce JOIN calendar_events e ON e.id=ce.event_id
+                                                                                     WHERE ce.case_id=? AND e.start_at >= ? ORDER BY e.start_at LIMIT 6""", (row[0], now_ts))]
+        by_channel = dict(con.execute("SELECT channel, count(*) FROM v_case_timeline WHERE case_id=? AND t >= ? GROUP BY 1", (row[0], now_ts - 30 * 86400)).fetchall())
+        pmids = con.execute("SELECT DISTINCT o.provider_message_id FROM case_mail cm JOIN mail_observations o ON o.atom_id=cm.message_id WHERE cm.case_id=? LIMIT 800", (row[0],)).fetchall() if _has(con, "mail_observations") else []
     finally:
         con.close()
+    open_items: list[dict] = []
+    if pmids:
+        ids = [p[0] for p in pmids]
+        cutoff = parse_cutoff(settings.task_extract_since)
+        tasks = (await session.execute(select(Task, Email.subject).join(Email, Email.id == Task.email_id).where(Task.status == "pending", Email.provider_message_id.in_(ids)))).all()
+        for t, subj in tasks:
+            open_items.append({"kind": "task", "id": t.id, "title": t.description, "when": aware(t.deadline).isoformat() if t.deadline else None, "email_id": t.email_id, "email_subject": subj})
+        commits = (await session.execute(select(Commitment, Email.subject, Email.received_at).join(Email, Email.id == Commitment.email_id).where(Commitment.status == "pending", Email.provider_message_id.in_(ids)))).all()
+        for c, subj, rec in commits:
+            if rec is None or aware(rec) >= cutoff:
+                open_items.append({"kind": "commitment", "id": c.id, "title": f"{_WHO.get(c.who, c.who)}: {c.what}", "when": aware(c.deadline).isoformat() if c.deadline else None, "email_id": c.email_id, "email_subject": subj})
+    return {"source": src, "code": row[1], "title": row[2], "kind": row[3], "color": case_color(row[1]), "keywords": kws, "organizations": orgs, "groups": groups, "timeline": tl,
+            "upcoming_events": upcoming, "activity_30d": by_channel, "open_items": open_items[:40]}
 
 
 @router.get("/search")

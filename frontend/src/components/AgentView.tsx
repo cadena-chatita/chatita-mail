@@ -3,16 +3,17 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { CalendarDays, Handshake, Loader2, Mail, Reply, CheckSquare, Briefcase, Search as SearchIcon, Send } from "lucide-react";
+import { CalendarDays, Handshake, Loader2, Mail, Reply, CheckSquare, Search as SearchIcon, Send } from "lucide-react";
 import {
-  agentCommand, agentSearch, getAgentAgenda, getAgentCase, getAgentCases, getAgentToday,
-  type AgendaEvent, type SearchHit, type TodayItem,
+  agentCommand, agentSearch, getAgentCase, getAgentCases, getAgentToday,
+  type SearchHit, type TodayItem,
 } from "../api/client";
 import { TONE_CLASS, deadlineLabel, deadlineTone } from "../lib/format";
 import { useUI } from "../store";
-import { CaseChips, SourceBadge } from "./shared";
+import CalendarView from "./calendar/CalendarView";
+import { CaseChips, CaseLatest, NextStep, SourceBadge, SourceLine } from "./shared";
 
-export type AgentMode = "today" | "agenda" | "cases" | "search" | "orders";
+export type AgentMode = "today" | "calendar" | "cases" | "search" | "orders";
 
 function Header({ title, subtitle, right }: { title: string; subtitle: string; right?: React.ReactNode }) {
   return (
@@ -47,11 +48,9 @@ function ItemCard({ it }: { it: TodayItem }) {
             <CaseChips cases={it.cases} />
             <span className="text-slate-500">{it.why}</span>
           </div>
-          {(it.email_subject || it.email_from) && (
-            <div className="mt-1 text-xs text-slate-500 [overflow-wrap:anywhere]">
-              Correo de origen: <b className="font-medium text-slate-600">{it.email_from}</b> · {it.email_subject}
-            </div>
-          )}
+          <SourceLine from={it.email_from} subject={it.email_subject} receivedAt={it.email_received_at} excerpt={it.email_excerpt} />
+          <NextStep text={it.suggestion} />
+          <CaseLatest code={it.cases[0]?.code} latest={it.case_latest} />
         </div>
       </div>
       <div className="mt-2 flex flex-wrap gap-2 pl-8">
@@ -66,8 +65,8 @@ function ItemCard({ it }: { it: TodayItem }) {
           </button>
         )}
         {it.kind === "event" && (
-          <button onClick={() => setFolder("agent_agenda")} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
-            <CalendarDays size={13} /> Ver en la agenda
+          <button onClick={() => setFolder("agent_calendar")} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">
+            <CalendarDays size={13} /> Ver en el calendario
           </button>
         )}
       </div>
@@ -111,75 +110,45 @@ function Today() {
   );
 }
 
-function EventRow({ ev }: { ev: AgendaEvent }) {
-  const t = ev.all_day || !ev.start ? "Todo el día" : format(new Date(ev.start), "h:mm a", { locale: es });
-  return (
-    <li className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3" data-testid="agenda-event">
-      <div className="w-20 shrink-0 text-xs font-medium text-slate-600">{t}</div>
-      <div className="min-w-0 flex-1">
-        <div className="break-words text-sm font-medium text-slate-800">{ev.title}</div>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-          {ev.calendar && <span>{ev.calendar}</span>}
-          {ev.attendees > 0 && <span>· {ev.attendees} invitado(s)</span>}
-          {ev.location && <span className="[overflow-wrap:anywhere]">· {ev.location}</span>}
-          <CaseChips cases={ev.cases} />
-        </div>
-      </div>
-    </li>
-  );
-}
-
-function Agenda() {
-  const [days, setDays] = useState(14);
-  const q = useQuery({ queryKey: ["agent-agenda", days], queryFn: () => getAgentAgenda(days) });
-  return (
-    <div>
-      <Header
-        title="Agenda"
-        subtitle="Eventos de tus calendarios (iCloud, Google y Exchange) con el caso al que pertenecen. Se actualiza desde tu computadora."
-        right={
-          <div className="flex items-center gap-2">
-            {q.data && <SourceBadge kind={q.data.source.kind} ageSeconds={q.data.source.age_s} />}
-            <select value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="Rango" className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs">
-              {[7, 14, 30, 60].map((d) => <option key={d} value={d}>Próximos {d} días</option>)}
-            </select>
-          </div>
-        }
-      />
-      <div className="mx-auto max-w-3xl space-y-5 p-4">
-        {q.isLoading && <div className="flex items-center gap-2 text-slate-500"><Loader2 className="animate-spin" size={16} /> Cargando…</div>}
-        {q.data && q.data.days.length === 0 && <Empty text={q.data.source.kind === "none" ? "AION Agent no tiene datos de agenda en este entorno." : "No hay eventos en este rango."} />}
-        {q.data?.days.map((d) => (
-          <section key={d.date}>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{format(new Date(`${d.date}T12:00:00`), "EEEE d 'de' MMMM", { locale: es })}</h3>
-            <ul className="space-y-2">{d.events.map((e) => <EventRow key={e.id} ev={e} />)}</ul>
-          </section>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function CaseDetailPane({ code }: { code: string }) {
   const q = useQuery({ queryKey: ["agent-case", code], queryFn: () => getAgentCase(code) });
+  const { openEmail } = useUI();
   if (q.isLoading) return <div className="p-4 text-slate-500"><Loader2 className="animate-spin" size={16} /></div>;
   if (!q.data) return <Empty text="No pude cargar el caso." />;
   const d = q.data;
+  const chan = { whatsapp: "WhatsApp", mail: "Correo", event: "Agenda" } as Record<string, string>;
   return (
-    <div className="space-y-3 p-4">
-      <h3 className="text-base font-semibold text-slate-800 [overflow-wrap:anywhere]">{d.code}: {d.title}</h3>
+    <div className="space-y-4 p-4">
+      <div className="border-l-4 pl-3" style={{ borderColor: d.color }}>
+        <h3 className="text-base font-semibold text-slate-800 [overflow-wrap:anywhere]">{d.code}</h3>
+        <div className="text-sm text-slate-600 [overflow-wrap:anywhere]">{d.title}</div>
+        {d.activity_30d && <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">{Object.entries(d.activity_30d).map(([k, n]) => <span key={k} className="rounded-full bg-slate-100 px-2 py-0.5">{chan[k] ?? k}: {n} en 30 días</span>)}</div>}
+      </div>
+      {d.open_items && d.open_items.length > 0 && (
+        <section><h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Pendiente en este caso · {d.open_items.length}</h4>
+          <ul className="space-y-1.5">{d.open_items.map((i) => (
+            <li key={i.id} className="flex items-start justify-between gap-2 rounded-md border border-slate-200 bg-white p-2 text-xs">
+              <div className="min-w-0 [overflow-wrap:anywhere]"><div className="font-medium text-slate-800">{i.title}</div><div className="text-slate-500">{i.kind === "task" ? "Tarea" : "Compromiso"}{i.when ? ` · ${deadlineLabel(i.when)}` : ""} · {i.email_subject}</div></div>
+              <button onClick={() => openEmail(i.email_id)} className="shrink-0 rounded-md border border-slate-300 px-2 py-0.5 text-slate-700 hover:bg-slate-50">Ver correo</button>
+            </li>))}</ul></section>
+      )}
+      {d.upcoming_events && d.upcoming_events.length > 0 && (
+        <section><h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Próximos eventos</h4>
+          <ul className="space-y-1">{d.upcoming_events.map((e, i) => <li key={i} className="text-xs text-slate-700 [overflow-wrap:anywhere]"><span className="text-slate-400">{e.at ? format(new Date(e.at), "EEE d MMM, h:mm a", { locale: es }) : ""}</span> · {e.title} <span className="text-slate-400">({e.calendar})</span></li>)}</ul></section>
+      )}
       <p className="text-xs text-slate-500 [overflow-wrap:anywhere]"><b>Palabras clave:</b> {d.keywords.join(", ") || "(ninguna)"}</p>
       {d.organizations.length > 0 && <p className="text-xs text-slate-500 [overflow-wrap:anywhere]"><b>Organizaciones:</b> {d.organizations.join(", ")}</p>}
       {d.groups.length > 0 && <p className="text-xs text-slate-500 [overflow-wrap:anywhere]"><b>Grupos de WhatsApp:</b> {d.groups.join(" · ")}</p>}
-      <ul className="space-y-1.5">
-        {d.timeline.map((t, i) => (
-          <li key={i} className="rounded-md border border-slate-200 bg-white p-2 text-xs">
-            <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">{{ whatsapp: "WhatsApp", mail: "Correo", event: "Agenda" }[t.channel] ?? t.channel}</span>
-            <span className="text-slate-400">{t.at ? format(new Date(t.at), "d MMM yyyy", { locale: es }) : ""}</span>
-            <div className="mt-1 break-words text-slate-700">{t.summary}</div>
-          </li>
-        ))}
-      </ul>
+      <section><h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Línea de tiempo</h4>
+        <ul className="space-y-1.5">
+          {d.timeline.map((t, i) => (
+            <li key={i} className="rounded-md border border-slate-200 bg-white p-2 text-xs">
+              <span className="mr-2 rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">{chan[t.channel] ?? t.channel}</span>
+              <span className="text-slate-400">{t.at ? format(new Date(t.at), "d MMM yyyy", { locale: es }) : ""}</span>
+              <div className="mt-1 break-words text-slate-700">{t.summary}</div>
+            </li>
+          ))}
+        </ul></section>
     </div>
   );
 }
@@ -197,11 +166,12 @@ function Cases() {
           {q.data?.cases.map((c) => (
             <li key={c.code}>
               <button onClick={() => setAgentCase(c.code)} className={`w-full rounded-lg border p-3 text-left hover:bg-slate-50 ${agentCase === c.code ? "border-indigo-400 bg-indigo-50/40" : "border-slate-200 bg-white"}`}>
-                <div className="flex items-center gap-2 text-sm font-medium text-slate-800"><Briefcase size={14} className="shrink-0 text-indigo-500" /> <span className="[overflow-wrap:anywhere]">{c.code}</span></div>
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-800"><span className="h-3 w-3 shrink-0 rounded-sm" style={{ background: c.color }} /> <span className="[overflow-wrap:anywhere]">{c.code}</span></div>
                 <div className="mt-0.5 text-xs text-slate-500 [overflow-wrap:anywhere]">{c.title}</div>
                 <div className="mt-1.5 flex flex-wrap gap-x-3 text-[11px] text-slate-500">
                   <span>{c.groups} grupos</span><span>{c.mail} correos</span><span>{c.events} eventos</span>
                   {c.proposals > 0 && <span className="text-amber-700">{c.proposals} por revisar</span>}
+                  {c.last_activity && <span>última actividad {format(new Date(c.last_activity), "d MMM", { locale: es })}</span>}
                 </div>
               </button>
             </li>
@@ -297,7 +267,7 @@ export default function AgentView({ mode }: { mode: AgentMode }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-white" data-testid={`agent-${mode}`}>
       {mode === "today" && <Today />}
-      {mode === "agenda" && <Agenda />}
+      {mode === "calendar" && <CalendarView />}
       {mode === "cases" && <Cases />}
       {mode === "search" && <Search />}
       {mode === "orders" && <Orders />}

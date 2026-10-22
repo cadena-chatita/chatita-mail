@@ -1,5 +1,5 @@
 // Chatita Mail v3.0 — left navigation (folders, counts, sync, workload)
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Icons from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
@@ -33,17 +33,23 @@ function countFor(folder: FolderDef, stats?: InboxStats): number | null {
   }
 }
 
-const GROUPS: { id: FolderDef["group"]; label: string | null }[] = [
-  { id: "primary", label: null },
-  { id: "agent", label: "AION Agent" },
-  { id: "workflow", label: "Flujo de trabajo" },
-  { id: "categories", label: "Prioridad" },
-  { id: "system", label: "Filtrados" },
+// "agent" holds everything used daily and is always open; the rest fold away (progressive disclosure: one level is enough).
+const GROUPS: { id: FolderDef["group"]; label: string | null; fold: boolean; openByDefault: boolean }[] = [
+  { id: "agent", label: "AION Agent", fold: false, openByDefault: true },
+  { id: "categories", label: "Correo por prioridad", fold: true, openByDefault: false },
+  { id: "system", label: "Filtrados y archivo", fold: true, openByDefault: false },
+  { id: "more", label: "Más", fold: true, openByDefault: false },
 ];
+
+const workspaceUrl = () => (location.hostname.endsWith("chatita.ai") ? "https://chatita.ai/" : "/");
 
 export default function Sidebar() {
   const { folderKey, setFolder, openCompose, accountId, drawerOpen, setDrawer } = useUI();
   const qc = useQueryClient();
+  const [open, setOpen] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem("sb.open") ?? "{}"); } catch { return {}; } });
+  const isOpen = (g: (typeof GROUPS)[number]) => !g.fold || (open[g.id] ?? g.openByDefault) || FOLDERS.some((f) => f.group === g.id && f.key === folderKey);
+  const openAccounts = open.accounts ?? false;
+  const toggle = (id: string, now: boolean) => setOpen((o) => { const n = { ...o, [id]: !now }; localStorage.setItem("sb.open", JSON.stringify(n)); return n; });
 
   const { data: stats } = useQuery({
     queryKey: ["stats", accountId],
@@ -112,19 +118,23 @@ export default function Sidebar() {
       </div>
 
       {/* Folders */}
-      <nav className="flex-1 px-2 py-3 space-y-3">
-        <AccountSwitcher />
+      <nav className="flex-1 px-2 py-3 space-y-2">
         {GROUPS.map((g) => {
           const items = FOLDERS.filter((f) => f.group === g.id);
           if (items.length === 0) return null;
+          const expanded = isOpen(g);
           return (
             <div key={g.id}>
               {g.label && (
-                <div className="px-2 mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                  {g.label}
-                </div>
+                g.fold ? (
+                  <button onClick={() => toggle(g.id, expanded)} aria-expanded={expanded} className="flex w-full items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-600">
+                    {g.label}<LucideIcon name={expanded ? "ChevronDown" : "ChevronRight"} className="text-slate-400" />
+                  </button>
+                ) : (
+                  <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{g.label}</div>
+                )
               )}
-              {items.map((f) => {
+              {expanded && items.map((f) => {
                 const active = folderKey === f.key;
                 const cnt = countFor(f, stats);
                 return (
@@ -151,19 +161,26 @@ export default function Sidebar() {
                   </button>
                 );
               })}
+              {g.id === "more" && expanded && (
+                <a href={workspaceUrl()} className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-slate-600 hover:bg-slate-200/60">
+                  <LucideIcon name="MessageSquare" className="text-slate-400" /><span className="flex-1 text-left">Chat de Chatita</span><LucideIcon name="ExternalLink" className="text-slate-300" />
+                </a>
+              )}
+              {g.id === "more" && expanded && (
+                <button onClick={() => setFolder("settings")} className={`w-full flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm ${folderKey === "settings" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-200/60"}`}>
+                  <LucideIcon name="Settings" className={folderKey === "settings" ? "text-white" : "text-slate-400"} /><span className="flex-1 text-left">Configuración</span>
+                </button>
+              )}
             </div>
           );
         })}
+        <div>
+          <button onClick={() => toggle("accounts", openAccounts)} aria-expanded={openAccounts} className="flex w-full items-center justify-between px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 hover:text-slate-600">
+            Cuentas de correo<LucideIcon name={openAccounts ? "ChevronDown" : "ChevronRight"} className="text-slate-400" />
+          </button>
+          {openAccounts && <AccountSwitcher />}
+        </div>
       </nav>
-
-      <button
-        onClick={() => setFolder("settings")}
-        className={`mx-2 mb-1 flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm ${
-          folderKey === "settings" ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-200/60"
-        }`}
-      >
-        <LucideIcon name="Settings" /> Configuración
-      </button>
 
       {/* Workload footer */}
       <div className="border-t border-slate-200 p-3 text-xs text-slate-500 space-y-1">

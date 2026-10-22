@@ -632,3 +632,13 @@ Email entrante
 | Auditoría de diseño | 24 pruebas automáticas (3 tamaños × 8 vistas) detectan desbordes, texto cortado y controles encimados; hallazgos corregidos: barra lateral que escondía su lista de carpetas (ahora se desplaza completa), avisos que tapaban la barra inferior del teléfono, título de tarea aplastado a una palabra por renglón en teléfono, etiquetas mezcladas en inglés y español |
 
 **Pruebas:** backend 51, e2e 43 (11 con API simulada, 8 de AION Agent, 24 de diseño; más 2 contra el backend local real bajo `E2E_LIVE_BACKEND=1`). **Verificado con datos reales en localhost:** *Hoy* 19 elementos con 20 chips de caso, *Ver correo* abre el panel desde Hoy, Tareas (5 filas) y Compromisos (100 filas), Agenda 5 eventos, Casos 15, el editor de Responder queda a la vista y no hubo respuestas 5xx. **M5:** `agent.py` y el cliente desplegados con hashes idénticos, copia previa guardada.
+
+## 2026-10-22 (tarde) — Calendario completo, menú plegable y más contexto en AION Agent
+
+- **Calendario** (`backend/routes/calendar.py`, `frontend/src/components/calendar/`): mes, semana, día y agenda; todos los calendarios (base de AION Agent + Google en vivo, sin duplicados); color por caso o calendario; filtros; detalle con invitados y enlaces; crear, editar y eliminar con Google Meet o Zoom (las invitaciones por correo solo salen si se marca la casilla).
+- **Zoom:** `backend/services/email/zoom_connector.py` (Server-to-Server OAuth). Variables `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET` en el `.env` de producción (0600).
+- **Incidente propio:** consultar los calendarios de Google en paralelo hizo que el proceso terminara con SEGV (07:34Z, reinicio automático en ~5 s). Todas las llamadas a Google van ahora por un candado (`GoogleCalendar._lock`) con prueba que verifica que no se solapan. No volver a paralelizar ese cliente.
+- **Menú:** un segmento AION Agent (Hoy, Calendario, Correo, Tareas, Compromisos, Casos, Buscar, Órdenes) y grupos plegables con estado recordado.
+- **Más contexto:** extracto del correo, siguiente paso sugerido, lo último del caso, pendientes del caso.
+- **Pruebas:** backend 60, e2e 57. **Verificado en M5 con datos reales:** 31 eventos en 33 días, evento Meet y evento Zoom creados con enlace y eliminados.
+

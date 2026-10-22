@@ -22,7 +22,7 @@ CREATE TABLE case_events (event_id TEXT, case_id INTEGER, score REAL, reasons TE
 CREATE TABLE mail_observations (atom_id TEXT, account TEXT, provider TEXT, provider_message_id TEXT, status TEXT, is_read INTEGER);
 CREATE TABLE mail_messages (id TEXT PRIMARY KEY, subject TEXT, body_text TEXT, from_addr TEXT, from_name TEXT, received_at INTEGER);
 CREATE TABLE calendar_events (id TEXT PRIMARY KEY, calendar TEXT, title TEXT, start_at INTEGER, end_at INTEGER, all_day INTEGER, location TEXT, description TEXT);
-CREATE TABLE calendar_attendees (event_id TEXT, email TEXT, is_self INTEGER);
+CREATE TABLE calendar_attendees (event_id TEXT, email TEXT, phone TEXT, is_self INTEGER, status INTEGER);
 CREATE TABLE atoms (id TEXT PRIMARY KEY, chat_jid TEXT, occurred_at INTEGER, body_text TEXT);
 CREATE TABLE chats (jid TEXT PRIMARY KEY, name TEXT);
 CREATE TABLE orgs (id INTEGER PRIMARY KEY, name TEXT);
@@ -40,7 +40,7 @@ def _agent_db(path):
     c.execute("INSERT INTO mail_observations VALUES ('aa_1','owner@example.test','GMAIL','pm-123','INBOX',0)")
     c.execute("INSERT INTO case_mail VALUES ('aa_1',1,1,'x')")
     c.execute("INSERT INTO calendar_events VALUES ('ev1','Work','Junta del caso',?,?,0,'Oficina',NULL)", (now + 7200, now + 10800))
-    c.execute("INSERT INTO calendar_attendees VALUES ('ev1','x@y.example',0)"); c.execute("INSERT INTO case_events VALUES ('ev1',1,1,'x')")
+    c.execute("INSERT INTO calendar_attendees (event_id, email, is_self, status) VALUES ('ev1','x@y.example',0,2)"); c.execute("INSERT INTO case_events VALUES ('ev1',1,1,'x')")
     c.execute("INSERT INTO fts VALUES ('mail','aa_1','Honorarios del dictamen')")
     c.execute("INSERT INTO chats VALUES ('g1','Grupo HMG')"); c.execute("INSERT INTO atoms VALUES ('a1','g1',?,'Revisar el dictamen pericial')", (now,))
     c.execute("INSERT INTO fts VALUES ('atom','a1','Revisar el dictamen pericial')")
@@ -90,8 +90,10 @@ def test_today_orders_by_urgency_and_links_every_item_to_its_email_and_case(clie
     assert keys == ["overdue", "today", "soon", "open"] or keys[:2] == ["overdue", "today"]
     flat = {i["title"]: i for s in r["sections"] for i in s["items"]}
     pay = flat["Pagar honorarios"]
-    assert pay["urgency"] == "overdue" and pay["email_id"] == ids["e"] and pay["cases"] == [{"code": "HMG", "title": "Hospital HMG"}] and pay["email_subject"] == "Honorarios del dictamen"
-    assert flat["Responder a Ana"]["action"] == "reply" and flat["Responder a Ana"]["urgency"] == "today"
+    assert pay["urgency"] == "overdue" and pay["email_id"] == ids["e"] and [(c["code"], c["title"]) for c in pay["cases"]] == [("HMG", "Hospital HMG")] and pay["cases"][0]["color"].startswith("#") and pay["email_subject"] == "Honorarios del dictamen"
+    assert flat["Responder a Ana"]["action"] == "reply" and flat["Responder a Ana"]["urgency"] == "today" and flat["Responder a Ana"]["suggestion"] == "Responder a Ana"
+    assert flat["Pagar honorarios"]["suggestion"] == "Revisar el monto y registrar el pago" and flat["Pagar honorarios"]["email_excerpt"] == "x" and flat["Pagar honorarios"]["case_latest"]["channel"] == "mail"
+    assert flat["Junta del caso"]["suggestion"] == "Preparar: revisa lo último del caso HMG"
     assert flat["Tú: Enviar el dictamen"]["kind"] == "commitment" and "Remitente: Confirmar la fecha" in flat and flat["Sin plazo"]["urgency"] == "open" and flat["Sin plazo"]["cases"] == []
     assert flat["Junta del caso"]["kind"] == "event" and flat["Junta del caso"]["cases"][0]["code"] == "HMG"
     assert r["source"]["kind"] == "local" and r["summary"]["overdue"] == 1
@@ -113,6 +115,9 @@ def test_agenda_cases_case_detail_and_search(client):
     assert cs[0]["code"] == "HMG" and cs[0]["mail"] == 1 and cs[0]["events"] == 1
     d = c.get("/api/agent/cases/HMG").json()
     assert d["timeline"][0]["summary"] == "Honorarios del dictamen" and c.get("/api/agent/cases/NOPE").status_code == 404
+    assert d["color"].startswith("#") and d["upcoming_events"][0]["title"] == "Junta del caso" and d["activity_30d"].get("mail") == 1
+    assert {i["title"] for i in d["open_items"]} >= {"Pagar honorarios", "Responder a Ana"}                               # open work of this case, found through its mail
+    assert cs[0]["last_activity"] is not None
     s = c.get("/api/agent/search", params={"q": "dictamen"}).json()["results"]
     assert {x["kind"] for x in s} == {"correo", "whatsapp"} and "dictamen" in " ".join(x["snippet"] + x["title"] for x in s).lower()
     assert c.get("/api/agent/search", params={"q": "a "}).status_code in (200, 422)

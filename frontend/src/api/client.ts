@@ -455,22 +455,28 @@ export const connectPassword = async (
 ): Promise<ConnectResult> => (await api.post<ConnectResult>(`/accounts/${id}/connect-password`, b)).data;
 
 // ── AION Agent (what's next, agenda, cases, search, orders) ──
-export interface CaseChip { code: string; title: string | null }
+export interface CaseChip { code: string; title: string | null; color?: string; inferred?: boolean }
 export interface AgentSource { kind: "full" | "light" | "local" | "none"; age_s: number | null }
 export interface TodayItem {
   kind: "task" | "commitment" | "event"; id: string; title: string; when: string | null;
   urgency: "overdue" | "today" | "soon" | "week" | "later" | "open"; email_id: string | null;
-  email_subject: string | null; email_from: string | null; cases: CaseChip[]; why: string; action: string;
+  email_subject: string | null; email_from: string | null; email_received_at?: string | null; email_excerpt?: string | null; cases: CaseChip[];
+  case_latest?: { channel: string; at: string | null; summary: string } | null; why: string; action: string; suggestion?: string;
 }
 export interface TodayOut {
   generated_at: string; source: AgentSource; summary: Record<string, number>;
   sections: { key: string; title: string; items: TodayItem[] }[];
 }
 export interface AgendaEvent { id: string; calendar: string | null; title: string; start: string | null; end: string | null; all_day: boolean; location: string | null; attendees: number; cases: CaseChip[] }
-export interface CaseRow { code: string; title: string | null; kind: string | null; groups: number; mail: number; events: number; proposals: number }
-export interface CaseDetail { code: string; title: string | null; kind: string | null; keywords: string[]; organizations: string[]; groups: string[]; timeline: { channel: string; at: string | null; summary: string | null }[]; source: AgentSource }
+export interface CaseRow { code: string; title: string | null; kind: string | null; groups: number; mail: number; events: number; proposals: number; color?: string; last_activity?: string | null }
+export interface OpenItem { kind: "task" | "commitment"; id: string; title: string; when: string | null; email_id: string; email_subject: string | null }
+export interface CaseDetail {
+  code: string; title: string | null; kind: string | null; color?: string; keywords: string[]; organizations: string[]; groups: string[];
+  timeline: { channel: string; at: string | null; summary: string | null }[]; source: AgentSource;
+  upcoming_events?: { title: string; at: string | null; calendar: string | null }[]; activity_30d?: Record<string, number>; open_items?: OpenItem[];
+}
 export interface SearchHit { kind: string; at: string | null; where: string | null; title: string; snippet: string }
-export interface EmailContext { subject: string | null; from: string | null; received_at: string | null; cases: CaseChip[] }
+export interface EmailContext { subject: string | null; from: string | null; from_address?: string | null; received_at: string | null; excerpt?: string; cases: CaseChip[] }
 
 export const getAgentStatus = async () => (await api.get<{ available: boolean; source: AgentSource; counts?: Record<string, number>; has_search?: boolean; message?: string }>("/agent/status")).data;
 export const getAgentToday = async () => (await api.get<TodayOut>("/agent/today")).data;
@@ -481,5 +487,24 @@ export const agentSearch = async (q: string) => (await api.get<{ source: AgentSo
 export const agentCommand = async (text: string) => (await api.post<{ reply: string; source?: string }>("/agent/command", { text, session: "mail-ui" })).data;
 export const getEmailContext = async (ids: string[]) =>
   ids.length ? (await api.get<{ items: Record<string, EmailContext> }>("/agent/email-context", { params: { ids: ids.join(",") } })).data.items : {};
+
+// ── Calendar ──
+export interface CalAttendee { email: string | null; name: string | null; status: string; self?: boolean; organizer?: boolean }
+export interface CalEvent {
+  id: string; source: "aion" | "google"; calendar_id: string | null; event_id: string; calendar: string | null; calendar_color: string; title: string;
+  start: string | null; end: string | null; all_day: boolean; location: string | null; description: string; attendees: CalAttendee[];
+  meet_url: string | null; zoom_url: string | null; cases: CaseChip[]; editable: boolean; html_link?: string;
+}
+export interface CalCalendar { id: string; name: string; color: string; source: "aion" | "google"; writable: boolean; count?: number; primary?: boolean; also_in_aion?: boolean }
+export interface CalEventInput {
+  summary: string; start: string; end: string; all_day: boolean; timezone: string; calendar_id: string; location?: string; description?: string;
+  attendees: string[]; send_invites: boolean; conference: "none" | "meet" | "zoom"; case_code?: string | null; reminders?: number[] | null;
+}
+export const getCalendars = async () => (await api.get<{ source: AgentSource; google_error: string | null; zoom: boolean; calendars: CalCalendar[] }>("/agent/calendar/calendars")).data;
+export const getCalendarEvents = async (start: string, end: string) => (await api.get<{ source: AgentSource; google_error: string | null; count: number; events: CalEvent[] }>("/agent/calendar/events", { params: { start, end } })).data;
+export const createFullCalendarEvent = async (b: CalEventInput) => (await api.post<{ created: boolean; invitations_sent: boolean; event: CalEvent }>("/agent/calendar/events", b)).data;
+export const updateCalendarEvent = async (cal: string, id: string, b: Partial<CalEventInput> & { add_meet?: boolean }) => (await api.patch<{ updated: boolean; event: CalEvent }>(`/agent/calendar/events/${encodeURIComponent(cal)}/${encodeURIComponent(id)}`, b)).data;
+export const deleteCalendarEvent = async (cal: string, id: string) => (await api.delete(`/agent/calendar/events/${encodeURIComponent(cal)}/${encodeURIComponent(id)}`)).data;
+export const getFreeSlots = async (duration: number, days = 7) => (await api.get<{ slots: { start: string; end: string; label: string }[] }>("/agent/calendar/free-slots", { params: { duration, days } })).data.slots;
 
 export default api;

@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     # ── Google Workspace ────────────────────────────────────
     # Path to the service-account JSON key (Domain-Wide Delegation).
     # Reuses Chatita's existing service account by default.
+    # Zoom (Server-to-Server OAuth). Optional: without them the "Zoom" option of the calendar is simply unavailable.
+    zoom_account_id: str = ""
+    zoom_client_id: str = ""
+    zoom_client_secret: str = ""
+    calendar_timezone: str = "America/Mexico_City"
     google_service_account_json: str = "/Users/manuelcadena/chatita-local/chatita-service-account.json"
     # Mailbox to impersonate via DWD (Manny's primary inbox).
     gmail_impersonate_subject: str = "jose@manuelcadena.com"

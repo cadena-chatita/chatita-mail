@@ -4,22 +4,31 @@ import { mockApi, task } from "./fixtures";
 const open = async (page: Page, label: string | RegExp) => { await page.getByRole("button", { name: label }).first().click(); };
 
 test.describe("AION Agent dentro de Chatita Mail", () => {
-  test("la barra lateral muestra el grupo AION Agent con sus cinco vistas", async ({ page }) => {
+  test("la barra lateral junta lo de uso diario en AION Agent y pliega lo demás", async ({ page }) => {
     await mockApi(page);
     await page.goto("./");
     await expect(page.getByText("AION Agent", { exact: true })).toBeVisible();
-    for (const l of ["Hoy: qué sigue", "Agenda", "Casos", "Buscar en todo", "Órdenes a Chatita"]) await expect(page.getByRole("button", { name: l })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Críticos" })).toHaveCount(0);                       // folded away until opened
+    await page.getByRole("button", { name: /Correo por prioridad/ }).click();
+    await expect(page.getByRole("button", { name: /^Críticos/ })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole("button", { name: /^Críticos/ })).toBeVisible();                       // the choice is remembered
+    for (const l of ["Hoy", "Calendario", "Correo", "Tareas", "Compromisos", "Casos", "Buscar en todo", "Órdenes a Chatita"]) await expect(page.getByRole("button", { name: new RegExp(`^${l}`) }).first()).toBeVisible();
   });
 
   test("Hoy: qué sigue agrupa por urgencia, muestra caso y correo de origen, y abre el correo", async ({ page }) => {
     await mockApi(page);
     await page.goto("./");
-    await open(page, "Hoy: qué sigue");
+    await open(page, /^Hoy/);
     await expect(page.getByRole("heading", { name: /Vencido · 1/ })).toBeVisible();
     await expect(page.getByTestId("today-item")).toHaveCount(4);
     const first = page.getByTestId("today-item").first();
     await expect(first.getByRole("button", { name: "HMG" })).toBeVisible();
-    await expect(first).toContainText("Correo de origen: Ana Prueba");
+    await expect(first).toContainText("Correo de origen");
+    await expect(first).toContainText("Ana Prueba");
+    await expect(first).toContainText("Adjunto la propuesta con el monto");                    // excerpt, without opening the mail
+    await expect(first).toContainText("Siguiente paso: Revisar el monto y registrar el pago");
+    await expect(first).toContainText("Lo último en HMG");
     await expect(first).toContainText("sin cortarse ni encimarse");                           // long titles wrap, never truncated
     await first.getByRole("button", { name: "Ver correo" }).click();
     await expect(page.getByTestId("reading-pane").getByText(/Párrafo 1 del correo/)).toBeVisible();
@@ -30,7 +39,7 @@ test.describe("AION Agent dentro de Chatita Mail", () => {
   test("Redactar respuesta abre el correo con el editor ya abierto y a la vista", async ({ page }) => {
     await mockApi(page, { paragraphs: 90 });
     await page.goto("./");
-    await open(page, "Hoy: qué sigue");
+    await open(page, /^Hoy/);
     await page.getByRole("button", { name: "Redactar respuesta" }).first().click();
     await expect(page.getByTestId("composer")).toBeVisible();
     await expect(page.getByTestId("composer")).toBeInViewport({ ratio: 0.4 });
@@ -39,21 +48,11 @@ test.describe("AION Agent dentro de Chatita Mail", () => {
   test("el chip del caso lleva al caso con su línea de tiempo", async ({ page }) => {
     await mockApi(page);
     await page.goto("./");
-    await open(page, "Hoy: qué sigue");
+    await open(page, /^Hoy/);
     await page.getByTestId("today-item").first().getByRole("button", { name: "HMG" }).click();
     await expect(page.getByTestId("agent-cases")).toBeVisible();
     await expect(page.getByText("Honorarios del dictamen")).toBeVisible();
     await expect(page.locator("p", { hasText: "Palabras clave:" })).toContainText("HSAI");
-  });
-
-  test("Agenda muestra los eventos con su caso, lugar completo y todo el día", async ({ page }) => {
-    await mockApi(page);
-    await page.goto("./");
-    await open(page, "Agenda");
-    await expect(page.getByTestId("agenda-event")).toHaveCount(2);
-    await expect(page.getByTestId("agenda-event").first()).toContainText("Torre Norte, piso 12, oficina 1204");
-    await expect(page.getByTestId("agenda-event").first().getByRole("button", { name: "HMG" })).toBeVisible();
-    await expect(page.getByTestId("agenda-event").nth(1)).toContainText("Todo el día");
   });
 
   test("Buscar en todo y Órdenes devuelven resultados", async ({ page }) => {
@@ -84,7 +83,7 @@ test.describe("AION Agent dentro de Chatita Mail", () => {
     await mockApi(page, { tasks: [task("t1", "e-long", "Actualizar el método de pago", { deadline: far, task_type: "payment" }), task("t2", "e-long", "Informar al proveedor que el pago está completo", { deadline: null, task_type: "reply" })] });
     await page.goto("./");
     await open(page, /^Tareas/);
-    await expect(page.getByText("Correo de origen: Ana Prueba").first()).toBeVisible();
+    await expect(page.getByTestId("source-line").first()).toContainText("Ana Prueba");
     await expect(page.getByRole("button", { name: "HMG" }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Ver correo" }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Redactar respuesta" })).toHaveCount(1);

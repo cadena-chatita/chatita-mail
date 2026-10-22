@@ -10,12 +10,14 @@ const VIEWS: { name: string; go: (p: Page) => Promise<void> }[] = [
   { name: "tasks", go: async (p) => { await clickNav(p, "tasks"); } },
   { name: "commitments", go: async (p) => { await clickNav(p, "commitments"); } },
   { name: "agent_today", go: async (p) => { await clickNav(p, "agent_today"); } },
-  { name: "agent_agenda", go: async (p) => { await clickNav(p, "agent_agenda"); } },
+  { name: "agent_calendar_week", go: async (p) => { await clickNav(p, "agent_calendar"); } },
+  { name: "agent_calendar_month", go: async (p) => { await clickNav(p, "agent_calendar"); await p.getByRole("tab", { name: "Mes" }).click(); } },
+  { name: "agent_calendar_agenda", go: async (p) => { await clickNav(p, "agent_calendar"); await p.getByRole("tab", { name: "Agenda" }).click(); } },
   { name: "agent_cases", go: async (p) => { await clickNav(p, "agent_cases"); } },
   { name: "agent_search", go: async (p) => { await clickNav(p, "agent_search"); } },
   { name: "agent_orders", go: async (p) => { await clickNav(p, "agent_orders"); } },
 ];
-const LABEL: Record<string, RegExp> = { tasks: /^Tareas/, commitments: /^Compromisos/, agent_today: /Hoy: qué sigue/, agent_agenda: /^Agenda/, agent_cases: /^Casos/, agent_search: /Buscar en todo/, agent_orders: /Órdenes a Chatita/ };
+const LABEL: Record<string, RegExp> = { tasks: /^Tareas/, commitments: /^Compromisos/, agent_today: /^Hoy/, agent_calendar: /^Calendario/, agent_cases: /^Casos/, agent_search: /Buscar en todo/, agent_orders: /Órdenes a Chatita/ };
 
 async function clickNav(page: Page, key: string) {
   const vw = page.viewportSize()!.width;
@@ -45,6 +47,7 @@ async function audit(page: Page) {
     for (const el of Array.from(document.querySelectorAll("main *, #root *"))) {
       if (!visible(el)) continue;
       const cs = getComputedStyle(el);
+      if (el.closest('[data-testid="cal-event"]') || el.closest('[data-expandable]')) continue;      // deliberate: full text in the tooltip / detail panel / "ver más"
       if ((cs.textOverflow === "ellipsis" || cs.getPropertyValue("-webkit-line-clamp") !== "none" && cs.getPropertyValue("-webkit-line-clamp") !== "") && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1) && el.textContent?.trim())
         issues.push(`texto cortado: ${describe(el)}`);
       const r = el.getBoundingClientRect();

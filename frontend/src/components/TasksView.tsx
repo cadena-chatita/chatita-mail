@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { getEmailContext, getTaskCounts, listCommitments, listTasks, updateTask } from "../api/client";
 import { TONE_CLASS, deadlineLabel, deadlineTone } from "../lib/format";
-import { CaseChips } from "./shared";
+import { CaseChips, SourceLine } from "./shared";
 import { useUI } from "../store";
 import type { Task } from "../types";
 
@@ -262,11 +262,7 @@ export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
                         </span>
                       )}
                     </div>
-                    {ctx[t.email_id] && (
-                      <div className="mt-1 text-xs text-slate-500 [overflow-wrap:anywhere]">
-                        Correo de origen: <b className="font-medium text-slate-600">{ctx[t.email_id].from}</b> · {ctx[t.email_id].subject}
-                      </div>
-                    )}
+                    {ctx[t.email_id] && <SourceLine from={ctx[t.email_id].from} subject={ctx[t.email_id].subject} receivedAt={ctx[t.email_id].received_at} excerpt={ctx[t.email_id].excerpt} />}
                   </div>
                   <div className="flex w-full shrink-0 flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
                     <button
@@ -328,11 +324,7 @@ export default function TasksView({ mode }: { mode: "tasks" | "commitments" }) {
                   {c.deadline && <span className={`rounded-full border px-2 py-0.5 ${TONE_CLASS[deadlineTone(c.deadline, now)]}`}>{deadlineTone(c.deadline, now) === "overdue" ? "Vencido · " : ""}{deadlineLabel(c.deadline)}</span>}
                   <CaseChips cases={ctx[c.email_id]?.cases} />
                 </div>
-                {ctx[c.email_id] && (
-                  <div className="mt-1 text-xs text-slate-500 [overflow-wrap:anywhere]">
-                    Correo de origen: <b className="font-medium text-slate-600">{ctx[c.email_id].from}</b> · {ctx[c.email_id].subject}
-                  </div>
-                )}
+                {ctx[c.email_id] && <SourceLine from={ctx[c.email_id].from} subject={ctx[c.email_id].subject} receivedAt={ctx[c.email_id].received_at} excerpt={ctx[c.email_id].excerpt} />}
               </div>
               <button
                 data-testid="commitment-open-email"

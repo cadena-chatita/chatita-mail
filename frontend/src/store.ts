@@ -8,21 +8,21 @@ export interface FolderDef {
   icon: string; // lucide icon name
   status?: EmailStatus;
   category?: EmailCategory;
-  group: "primary" | "agent" | "categories" | "system" | "workflow";
+  group: "agent" | "categories" | "system" | "more";
   countKey?: string; // key into stats.by_status or by_category
   countSource?: "status" | "category" | "unread" | "tasks" | "commitments";
 }
 
 export const FOLDERS: FolderDef[] = [
-  { key: "inbox", label: "Bandeja", icon: "Inbox", status: "INBOX", group: "primary", countSource: "unread" },
-  { key: "agent_today", label: "Hoy: qué sigue", icon: "Sparkles", group: "agent" },
-  { key: "agent_agenda", label: "Agenda", icon: "CalendarDays", group: "agent" },
+  // One segment, ordered by daily use: what to do now, when, the mail, the work it creates, the cases, finding things, giving orders.
+  { key: "agent_today", label: "Hoy", icon: "Sparkles", group: "agent" },
+  { key: "agent_calendar", label: "Calendario", icon: "CalendarDays", group: "agent" },
+  { key: "inbox", label: "Correo", icon: "Inbox", status: "INBOX", group: "agent", countSource: "unread" },
+  { key: "tasks", label: "Tareas", icon: "CheckSquare", group: "agent", countSource: "tasks" },
+  { key: "commitments", label: "Compromisos", icon: "Handshake", group: "agent", countSource: "commitments" },
   { key: "agent_cases", label: "Casos", icon: "Briefcase", group: "agent" },
   { key: "agent_search", label: "Buscar en todo", icon: "Search", group: "agent" },
   { key: "agent_orders", label: "Órdenes a Chatita", icon: "TerminalSquare", group: "agent" },
-  { key: "dashboard", label: "Panel", icon: "BarChart3", group: "workflow" },
-  { key: "tasks", label: "Tareas", icon: "CheckSquare", group: "workflow", countSource: "tasks" },
-  { key: "commitments", label: "Compromisos", icon: "Handshake", group: "workflow", countSource: "commitments" },
 
   { key: "critical", label: "Críticos", icon: "AlertOctagon", status: "INBOX", category: "CRITICAL", group: "categories", countSource: "category", countKey: "CRITICAL" },
   { key: "important", label: "Importantes", icon: "Star", status: "INBOX", category: "IMPORTANT", group: "categories", countSource: "category", countKey: "IMPORTANT" },
@@ -36,6 +36,8 @@ export const FOLDERS: FolderDef[] = [
   { key: "quarantined", label: "Cuarentena", icon: "ShieldAlert", status: "QUARANTINED", group: "system", countSource: "status", countKey: "QUARANTINED" },
   { key: "blocked", label: "Bloqueados", icon: "ShieldX", status: "BLOCKED", group: "system", countSource: "status", countKey: "BLOCKED" },
   { key: "trash", label: "Papelera", icon: "Trash2", status: "DELETED", group: "system", countSource: "status", countKey: "DELETED" },
+
+  { key: "dashboard", label: "Panel", icon: "BarChart3", group: "more" },
 ];
 
 interface UIState {
@@ -97,5 +99,5 @@ export const useUI = create<UIState>((set) => ({
 }));
 
 export function folderByKey(key: string): FolderDef {
-  return FOLDERS.find((f) => f.key === key) ?? FOLDERS[0];
+  return FOLDERS.find((f) => f.key === key) ?? FOLDERS.find((f) => f.key === "inbox")!;
 }
