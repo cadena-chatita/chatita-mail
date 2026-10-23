@@ -642,3 +642,17 @@ Email entrante
 - **Más contexto:** extracto del correo, siguiente paso sugerido, lo último del caso, pendientes del caso.
 - **Pruebas:** backend 60, e2e 57. **Verificado en M5 con datos reales:** 31 eventos en 33 días, evento Meet y evento Zoom creados con enlace y eliminados.
 
+
+## 2026-10-23 — Brief LLM por caso (botón + lote nocturno)
+
+**Pedido:** al abrir un caso (Correo y agenda → Casos), un brief actualizado que condense todo el contexto; regeneración por la noche para que nunca esté más de un día viejo.
+
+| Qué | Detalle |
+|---|---|
+| `backend/services/case_brief.py` | prompt en español con la línea de tiempo omnicanal (≤80 elementos), pendientes, próximos eventos, organizaciones/grupos y el brief anterior; `task_type="medium"` vía AION Brain → **claude-sonnet-5** (~1 llamada/caso/día) |
+| `case_briefs` (Postgres) | tabla nueva creada bajo demanda al primer uso (la base de AION Agent se abre solo-lectura; los briefs viven en la DB de la app) |
+| Rutas | `GET /api/agent/cases/{code}/brief` (sirve el guardado o lo genera), `POST` mismo path (forzar regeneración), `POST /api/agent/briefs/nightly` (todos los casos) |
+| UI | tarjeta "Brief del caso" en el detalle: fecha/hora de generación, modelo, nº de elementos y botón **Actualizar** |
+| Nocturno | `scripts/case_briefs_nightly.sh` + `chatita-case-briefs.timer` (systemd, 03:30 UTC, Persistent) en M5 |
+
+**Verificado:** backend 60 tests en verde, `tsc` limpio, build `index-BtMPcIKC.js` publicado en local y M5 (sha256 idénticos en los 4 archivos de backend), `chatita-mail.service` activo, brief real de `HMG` generado en prod (80 elementos, 2301 caracteres, re-servido en 21 ms), timer listado con próxima ejecución. Commit `488cc78`.
