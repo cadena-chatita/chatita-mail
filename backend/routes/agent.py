@@ -9,6 +9,9 @@ or the computer's own database on a developer machine); orders go through the AI
   GET  /api/agent/cases[/{code}]   cases with counts / one case with its timeline
   GET  /api/agent/search?q=        full text over WhatsApp, mail, attachments and calendar
   GET  /api/agent/email-context    subject, sender and cases for a list of Chatita Mail email ids (tasks, commitments)
+  GET  /api/agent/cases/{code}/brief    stored LLM brief for a case (generates it if missing)
+  POST /api/agent/cases/{code}/brief    force-regenerate the brief (button "Actualizar brief")
+  POST /api/agent/briefs/nightly        regenerate every case brief (nightly cron job)
   POST /api/agent/command          a direct order in Spanish ("agrega palabra clave X al caso Y")
 """
 from __future__ import annotations
@@ -28,9 +31,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import settings
-from backend.models.db import get_session
-from backend.models.entities import Commitment, Email, EmailAccount, Task
+from backend.models.db import Base, engine, get_session
+from backend.models.entities import CaseBrief, Commitment, Email, EmailAccount, Task
 from backend.services.agent_colors import case_color
+from backend.services.case_brief import generate_brief
 from backend.services.workflow.task_value import aware, parse_cutoff
 
 router = APIRouter(prefix="/api/agent", tags=["aion-agent"])
@@ -299,6 +303,129 @@ async def case_detail(code: str, limit: int = Query(40, le=200), session: AsyncS
                 open_items.append({"kind": "commitment", "id": c.id, "title": f"{_WHO.get(c.who, c.who)}: {c.what}", "when": aware(c.deadline).isoformat() if c.deadline else None, "email_id": c.email_id, "email_subject": subj})
     return {"source": src, "code": row[1], "title": row[2], "kind": row[3], "color": case_color(row[1]), "keywords": kws, "organizations": orgs, "groups": groups, "timeline": tl,
             "upcoming_events": upcoming, "activity_30d": by_channel, "open_items": open_items[:40]}
+
+
+# ── LLM briefs per case ─────────────────────────────────────
+# The agent database is opened read-only, so briefs live in the app's own
+# Postgres (`case_briefs`). The table is created lazily on first use (prod
+# never runs the auto schema-fixer).
+_briefs_ready = False
+
+
+async def _ensure_briefs_table() -> None:
+    global _briefs_ready
+    if _briefs_ready:
+        return
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(lambda sc: Base.metadata.tables["case_briefs"].create(sc, checkfirst=True))
+        _briefs_ready = True
+    except Exception:  # noqa: BLE001 - the next query will fail loudly anyway
+        pass
+
+
+def _brief_context(con: sqlite3.Connection, code: str, tl_limit: int = 80) -> dict | None:
+    """Same context the case-detail endpoint uses, for the LLM to summarize."""
+    row = con.execute("SELECT id, code, title, kind FROM cases WHERE code=?", (code,)).fetchone()
+    if not row:
+        return None
+    seeds_case = next((c for c in _seeds().get("cases", []) if c.get("code") == code), {})
+    kws = [i if isinstance(i, str) else (i.get("value") or i.get("pattern") or "") for i in seeds_case.get("keywords", [])]
+    tl = [{"channel": ch, "at": _iso(t), "summary": s} for ch, t, s in con.execute("SELECT channel, t, summary FROM v_case_timeline WHERE case_id=? ORDER BY t DESC LIMIT ?", (row[0], tl_limit))]
+    orgs = [r[0] for r in con.execute("SELECT o.name FROM case_links cl JOIN orgs o ON o.id=cast(cl.ref_id AS integer) WHERE cl.case_id=? AND cl.ref_kind='org' AND cl.status IN ('confirmed','provisional') ORDER BY o.name LIMIT 30", (row[0],))]
+    groups = [r[0] for r in con.execute("SELECT coalesce(ch.name, cl.ref_id) FROM case_links cl LEFT JOIN chats ch ON ch.jid=cl.ref_id WHERE cl.case_id=? AND cl.ref_kind='group' AND cl.status IN ('confirmed','provisional') ORDER BY 1 LIMIT 40", (row[0],))]
+    now_ts = time.time()
+    upcoming = [{"title": t, "at": _iso(a), "calendar": c} for t, a, c in con.execute("SELECT e.title, e.start_at, e.calendar FROM case_events ce JOIN calendar_events e ON e.id=ce.event_id WHERE ce.case_id=? AND e.start_at >= ? ORDER BY e.start_at LIMIT 6", (row[0], now_ts))]
+    by_channel = dict(con.execute("SELECT channel, count(*) FROM v_case_timeline WHERE case_id=? AND t >= ? GROUP BY 1", (row[0], now_ts - 30 * 86400)).fetchall())
+    return {"id": row[0], "code": row[1], "title": row[2], "keywords": kws, "orgs": orgs, "groups": groups,
+            "timeline": tl, "upcoming": upcoming, "activity_30d": by_channel}
+
+
+def _brief_out(b: CaseBrief) -> dict:
+    return {"case_code": b.case_code, "brief_md": b.brief_md, "model": b.model,
+            "items_used": b.items_used,
+            "generated_at": aware(b.generated_at).isoformat() if b.generated_at else None}
+
+
+async def _open_items_for(con: sqlite3.Connection, case_id: int, session: AsyncSession) -> list[dict]:
+    pmids = con.execute("SELECT DISTINCT o.provider_message_id FROM case_mail cm JOIN mail_observations o ON o.atom_id=cm.message_id WHERE cm.case_id=? LIMIT 800", (case_id,)).fetchall() if _has(con, "mail_observations") else []
+    out: list[dict] = []
+    if pmids:
+        ids = [p[0] for p in pmids]
+        cutoff = parse_cutoff(settings.task_extract_since)
+        for t, subj in (await session.execute(select(Task, Email.subject).join(Email, Email.id == Task.email_id).where(Task.status == "pending", Email.provider_message_id.in_(ids)))).all():
+            out.append({"kind": "task", "title": t.description, "when": aware(t.deadline).isoformat() if t.deadline else None})
+        for c, subj, rec in (await session.execute(select(Commitment, Email.subject, Email.received_at).join(Email, Email.id == Commitment.email_id).where(Commitment.status == "pending", Email.provider_message_id.in_(ids)))).all():
+            if rec is None or aware(rec) >= cutoff:
+                out.append({"kind": "commitment", "title": f"{_WHO.get(c.who, c.who)}: {c.what}", "when": aware(c.deadline).isoformat() if c.deadline else None})
+    return out[:40]
+
+
+async def _generate_and_store(code: str, session: AsyncSession) -> CaseBrief:
+    await _ensure_briefs_table()
+    con, _ = open_agent_db()
+    if con is None:
+        raise HTTPException(503, "AION Agent no tiene datos en este entorno")
+    try:
+        ctx = _brief_context(con, code)
+        open_items = await _open_items_for(con, ctx["id"], session) if ctx else []
+    finally:
+        con.close()
+    if ctx is None:
+        raise HTTPException(404, "Caso no encontrado")
+    prev = (await session.execute(select(CaseBrief).where(CaseBrief.case_code == code))).scalar_one_or_none()
+    gen = await generate_brief(code=ctx["code"], title=ctx["title"], keywords=ctx["keywords"], orgs=ctx["orgs"],
+                               groups=ctx["groups"], activity_30d=ctx["activity_30d"], timeline=ctx["timeline"],
+                               open_items=open_items, upcoming_events=ctx["upcoming"],
+                               prev_brief=prev.brief_md if prev else None)
+    if not gen["ok"]:
+        raise HTTPException(502, f"El LLM no devolvió un brief usable ({gen.get('error') or 'respuesta vacía'})")
+    if prev is None:
+        prev = CaseBrief(case_code=code, brief_md=gen["text"], model=gen["model"], items_used=gen["items_used"])
+        session.add(prev)
+    else:
+        prev.brief_md = gen["text"]
+        prev.model = gen["model"]
+        prev.items_used = gen["items_used"]
+        prev.generated_at = datetime.now(timezone.utc)
+    await session.flush()
+    return prev
+
+
+@router.get("/cases/{code}/brief")
+async def get_case_brief(code: str, session: AsyncSession = Depends(get_session)) -> dict:
+    await _ensure_briefs_table()
+    b = (await session.execute(select(CaseBrief).where(CaseBrief.case_code == code))).scalar_one_or_none()
+    if b is None:
+        b = await _generate_and_store(code, session)
+    return _brief_out(b)
+
+
+@router.post("/cases/{code}/brief")
+async def refresh_case_brief(code: str, session: AsyncSession = Depends(get_session)) -> dict:
+    return _brief_out(await _generate_and_store(code, session))
+
+
+@router.post("/briefs/nightly")
+async def nightly_briefs(session: AsyncSession = Depends(get_session)) -> dict:
+    con, _ = open_agent_db()
+    if con is None:
+        raise HTTPException(503, "AION Agent no tiene datos en este entorno")
+    try:
+        codes = [r[0] for r in con.execute("SELECT code FROM cases ORDER BY id").fetchall()]
+    finally:
+        con.close()
+    ok, failed = [], {}
+    for code in codes:
+        try:
+            await _generate_and_store(code, session)
+            ok.append(code)
+        except HTTPException as e:
+            failed[code] = e.detail
+        except Exception as e:  # noqa: BLE001 - one bad case must not stop the rest
+            failed[code] = str(e)
+    await session.commit()
+    return {"generated": ok, "failed": failed, "total": len(codes), "at": datetime.now(timezone.utc).isoformat()}
 
 
 @router.get("/search")

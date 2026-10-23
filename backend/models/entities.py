@@ -253,6 +253,22 @@ class StyleFeedback(Base):
     )
 
 
+# ── case_briefs (AION Agent) ────────────────────────────────
+# One row per case: the LLM-generated brief shown in the "Casos" view.
+# Regenerated on demand (button) and by the nightly job.
+class CaseBrief(Base):
+    __tablename__ = "case_briefs"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=_uuid)
+    case_code: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    brief_md: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    items_used: Mapped[int] = mapped_column(Integer, default=0)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 # ── embeddings (semantic search / RAG) ──────────────────────
 # Note: vector column added via raw SQL in setup_db.py (pgvector).
 class EmbeddingMeta(Base):

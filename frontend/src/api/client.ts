@@ -483,6 +483,9 @@ export const getAgentToday = async () => (await api.get<TodayOut>("/agent/today"
 export const getAgentAgenda = async (days = 14) => (await api.get<{ source: AgentSource; days: { date: string; events: AgendaEvent[] }[] }>("/agent/agenda", { params: { days } })).data;
 export const getAgentCases = async () => (await api.get<{ source: AgentSource; cases: CaseRow[] }>("/agent/cases")).data;
 export const getAgentCase = async (code: string) => (await api.get<CaseDetail>(`/agent/cases/${encodeURIComponent(code)}`)).data;
+export interface CaseBriefOut { case_code: string; brief_md: string; model: string | null; items_used: number; generated_at: string | null }
+export const getCaseBrief = async (code: string) => (await api.get<CaseBriefOut>(`/agent/cases/${encodeURIComponent(code)}/brief`)).data;
+export const refreshCaseBrief = async (code: string) => (await api.post<CaseBriefOut>(`/agent/cases/${encodeURIComponent(code)}/brief`)).data;
 export const agentSearch = async (q: string) => (await api.get<{ source: AgentSource; results: SearchHit[]; message?: string }>("/agent/search", { params: { q } })).data;
 export const agentCommand = async (text: string) => (await api.post<{ reply: string; source?: string }>("/agent/command", { text, session: "mail-ui" })).data;
 export const getEmailContext = async (ids: string[]) =>

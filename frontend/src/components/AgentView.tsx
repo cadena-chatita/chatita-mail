@@ -1,11 +1,11 @@
 // AION Agent inside Chatita Mail: what's next, agenda, cases, search and direct orders.
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { CalendarDays, Handshake, Loader2, Mail, Reply, CheckSquare, Search as SearchIcon, Send } from "lucide-react";
+import { CalendarDays, Handshake, Loader2, Mail, RefreshCw, Reply, CheckSquare, Search as SearchIcon, Send } from "lucide-react";
 import {
-  agentCommand, agentSearch, getAgentCase, getAgentCases, getAgentToday,
+  agentCommand, agentSearch, getAgentCase, getAgentCases, getAgentToday, getCaseBrief, refreshCaseBrief,
   type SearchHit, type TodayItem,
 } from "../api/client";
 import { TONE_CLASS, deadlineLabel, deadlineTone } from "../lib/format";
@@ -110,6 +110,36 @@ function Today() {
   );
 }
 
+function CaseBriefCard({ code }: { code: string }) {
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["case-brief", code], queryFn: () => getCaseBrief(code), retry: false });
+  const m = useMutation({
+    mutationFn: () => refreshCaseBrief(code),
+    onSuccess: (data) => qc.setQueryData(["case-brief", code], data),
+  });
+  const b = m.data ?? q.data;
+  const busy = q.isLoading || m.isPending;
+  return (
+    <section className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-3" aria-label="Brief del caso">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Brief del caso</h4>
+        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+          {b?.generated_at && <span>generado {format(new Date(b.generated_at), "d MMM yyyy, h:mm a", { locale: es })}</span>}
+          <button
+            onClick={() => m.mutate()}
+            disabled={busy}
+            className="inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-white px-2 py-0.5 font-medium text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+          >{busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Actualizar</button>
+        </div>
+      </div>
+      {q.isError && !b && <p className="text-xs text-slate-500">No hay brief todavía. Pulsa «Actualizar» para generarlo.</p>}
+      {m.isError && <p className="text-xs text-rose-600">No pude generar el brief; inténtalo de nuevo.</p>}
+      {b && <div className="whitespace-pre-wrap text-xs leading-relaxed text-slate-800">{b.brief_md}</div>}
+      {b?.model && <p className="mt-1 text-[10px] text-slate-400">modelo: {b.model} · {b.items_used} elementos analizados</p>}
+    </section>
+  );
+}
+
 function CaseDetailPane({ code }: { code: string }) {
   const q = useQuery({ queryKey: ["agent-case", code], queryFn: () => getAgentCase(code) });
   const { openEmail } = useUI();
@@ -124,6 +154,7 @@ function CaseDetailPane({ code }: { code: string }) {
         <div className="text-sm text-slate-600 [overflow-wrap:anywhere]">{d.title}</div>
         {d.activity_30d && <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">{Object.entries(d.activity_30d).map(([k, n]) => <span key={k} className="rounded-full bg-slate-100 px-2 py-0.5">{chan[k] ?? k}: {n} en 30 días</span>)}</div>}
       </div>
+      <CaseBriefCard code={code} />
       {d.open_items && d.open_items.length > 0 && (
         <section><h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Pendiente en este caso · {d.open_items.length}</h4>
           <ul className="space-y-1.5">{d.open_items.map((i) => (
