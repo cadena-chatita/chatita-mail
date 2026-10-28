@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { CalendarDays, Handshake, Loader2, Mail, RefreshCw, Reply, CheckSquare, Search as SearchIcon, Send } from "lucide-react";
+import { CalendarDays, Handshake, Loader2, Mail, MessageCircle, RefreshCw, Reply, CheckSquare, Search as SearchIcon, Send } from "lucide-react";
 import {
   agentCommand, agentSearch, getAgentCase, getAgentCases, getAgentToday, getCaseBrief, refreshCaseBrief,
   type SearchHit, type TodayItem,
@@ -31,11 +31,11 @@ function Empty({ text }: { text: string }) {
   return <div className="p-10 text-center text-sm text-slate-500">{text}</div>;
 }
 
-const KIND_ICON = { task: CheckSquare, commitment: Handshake, event: CalendarDays } as const;
+const KIND_ICON = { task: CheckSquare, commitment: Handshake, event: CalendarDays, whatsapp: MessageCircle } as const;
 
 function ItemCard({ it }: { it: TodayItem }) {
   const { openEmail, setFolder } = useUI();
-  const Icon = KIND_ICON[it.kind];
+  const Icon = KIND_ICON[it.kind] ?? MessageCircle;
   const tone = deadlineTone(it.when);
   return (
     <li className="rounded-lg border border-slate-200 bg-white p-3" data-testid="today-item">

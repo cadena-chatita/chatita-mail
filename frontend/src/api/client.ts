@@ -458,7 +458,7 @@ export const connectPassword = async (
 export interface CaseChip { code: string; title: string | null; color?: string; inferred?: boolean }
 export interface AgentSource { kind: "full" | "light" | "local" | "none"; age_s: number | null }
 export interface TodayItem {
-  kind: "task" | "commitment" | "event"; id: string; title: string; when: string | null;
+  kind: "task" | "commitment" | "event" | "whatsapp"; id: string; title: string; when: string | null;
   urgency: "overdue" | "today" | "soon" | "week" | "later" | "open"; email_id: string | null;
   email_subject: string | null; email_from: string | null; email_received_at?: string | null; email_excerpt?: string | null; cases: CaseChip[];
   case_latest?: { channel: string; at: string | null; summary: string } | null; why: string; action: string; suggestion?: string;
